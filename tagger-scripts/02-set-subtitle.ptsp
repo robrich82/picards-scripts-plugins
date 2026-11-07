@@ -1,0 +1,4 @@
+title: Set Subtitle
+script_language_version: '1.1'
+script: |
+  $set(discsubtitle,$title(%discsubtitle%))

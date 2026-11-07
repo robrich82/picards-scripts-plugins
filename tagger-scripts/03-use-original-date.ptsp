@@ -1,0 +1,13 @@
+title: Use Original Date
+script_language_version: '1.1'
+script: |
+  $set(_d,%originaldate%)
+  $if($eq($len(%_d%),4),$set(_d,%_d%-01-01))
+  $if($eq($len(%_d%),7),$set(_d,%_d%-01))
+  $set(originaldate,%_d%)
+  $set(_d,%date%)
+  $if($eq($len(%_d%),4),$set(_d,%_d%-01-01))
+  $if($eq($len(%_d%),7),$set(_d,%_d%-01))
+  $set(date,$if2(%originaldate%,%_d%))
+  $set(originalyear,$left(%date%,4))
+  $unset(_d)

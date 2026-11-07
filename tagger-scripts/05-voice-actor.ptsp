@@ -1,0 +1,16 @@
+title: Voice Actor
+script_language_version: '1.1'
+script: |
+  $set(_cvre,[^\\s\(\)（）、\,&;][^\(\)（）、\,&;]*?\\s*[\(（]CV[.:．：]\\s*\([^\(\)（）]*\)[\)）])
+  $set(_clean,$rreplace(%albumartist%,%_cvre%,\\1))
+  $if($ne(%_clean%,%albumartist%),
+    $set(albumartist,%_clean%)
+    $foreach(%_albumartists%,
+      $if($eq(%_loop_value%,%albumartist%),
+        $set(albumartistsort,$getmulti(%_albumartists_sort%,$sub(%_loop_count%,1)))
+      )
+    )
+    $set(albumartistsort,$rreplace(%albumartistsort%,%_cvre%,\\1))
+  )
+  $setmulti(_albumartists,$rreplace(%_albumartists%,%_cvre%,\\1))
+  $unset(_cvre)$unset(_clean)

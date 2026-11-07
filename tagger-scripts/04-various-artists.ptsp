@@ -1,0 +1,23 @@
+title: Various Artists
+script_language_version: '1.1'
+script: |
+  $set(_aa,$rreplace(%albumartist%,\\s+\(?i:feat\\.?|featuring|ft\\.|meets|produced by\)\\s.*,))
+  $set(_cvx,\\s*[\(（]CV[.:．：][^\(\)（）]*[\)）])
+  $set(_rest,$rreplace(%_aa%,%_cvx%,))
+  $set(_main,0)
+  $foreach(%_albumartists%,
+    $set(_name,$rreplace(%_loop_value%,%_cvx%,))
+    $if($and(%_name%,$in(%_rest%,%_name%)),
+      $set(_main,$add(%_main%,1))
+      $set(_rest,$substr(%_rest%,$add($find(%_rest%,%_name%),$len(%_name%))))
+    )
+  )
+  $if($gt(%_main%,1),
+    $set(albumartist,Various Artists)
+    $set(albumartistsort,Various Artists),
+    $if($ne(%_aa%,%albumartist%),
+      $set(albumartist,%_aa%)
+      $set(albumartistsort,$getmulti(%_albumartists_sort%,0))
+    )
+  )
+  $unset(_aa)$unset(_cvx)$unset(_rest)$unset(_main)$unset(_name)

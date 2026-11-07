@@ -1,0 +1,4 @@
+title: Remove Hyphens in Title
+script_language_version: '1.1'
+script: |
+  $set(title,$replace(%title%, - , – ))
