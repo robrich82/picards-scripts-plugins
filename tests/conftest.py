@@ -19,6 +19,12 @@ sys.path[:0] = [str(PICARD_SRC), str(PICARD_SRC / 'test')]
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 
+def pytest_report_header():
+    from picard import PICARD_VERSION_STR
+
+    return f'picard: {PICARD_VERSION_STR} from {PICARD_SRC}'
+
+
 def _defaulting_section(section_name):
     class _Section(dict):
         def __getitem__(self, name):

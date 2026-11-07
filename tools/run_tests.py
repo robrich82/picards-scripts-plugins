@@ -7,45 +7,70 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 
 PICARD_REF = 'release-3.0.4'
 PICARD_REPO = 'https://github.com/metabrainz/picard.git'
 PYTHON = '3.12'
+PYTEST = 'pytest==9.1.1'  # Picard's own dev pin
 
 ROOT = Path(__file__).resolve().parent.parent
 PICARD_DIR = ROOT / '.picard'
 PICARD_SRC = PICARD_DIR / 'src'
 VENV = ROOT / '.venv'
-VENV_PY = VENV / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+
+
+def venv_python(venv):
+    return venv / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 
 
 def run(*cmd):
     print('+', ' '.join(str(c) for c in cmd), flush=True)
-    subprocess.run([str(c) for c in cmd], check=True)
+    try:
+        subprocess.run([str(c) for c in cmd], check=True)
+    except FileNotFoundError:
+        sys.exit(f'{cmd[0]} not found on PATH')
 
 
-def ensure_picard_source():
-    stamp = PICARD_DIR / 'REF'
-    if PICARD_SRC.is_dir() and stamp.is_file() and stamp.read_text().strip() == PICARD_REF:
+def _clear_readonly(func, path, _exc):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def rmtree(path):
+    """shutil.rmtree that also removes read-only files, such as git pack files on Windows."""
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_clear_readonly)
+    else:
+        shutil.rmtree(path, onerror=_clear_readonly)
+
+
+def ensure_picard_source(picard_dir=PICARD_DIR):
+    src, stamp = picard_dir / 'src', picard_dir / 'REF'
+    if src.is_dir() and stamp.is_file() and stamp.read_text().strip() == PICARD_REF:
         return
-    if PICARD_SRC.exists():
-        shutil.rmtree(PICARD_SRC)
-    PICARD_DIR.mkdir(exist_ok=True)
-    run('git', 'clone', '--quiet', '--depth', '1', '--branch', PICARD_REF, PICARD_REPO, PICARD_SRC)
+    stamp.unlink(missing_ok=True)
+    if src.exists():
+        rmtree(src)
+    picard_dir.mkdir(exist_ok=True)
+    run('git', 'clone', '--quiet', '--depth', '1', '--branch', PICARD_REF, PICARD_REPO, src)
     stamp.write_text(PICARD_REF + '\n')
 
 
-def ensure_venv():
-    requirements = PICARD_SRC / 'requirements.txt'
-    wanted = f'{PICARD_REF} {hashlib.sha256(requirements.read_bytes()).hexdigest()}'
-    stamp = VENV / '.picard-deps'
-    if VENV_PY.exists() and stamp.is_file() and stamp.read_text().strip() == wanted:
+def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
+    requirements = picard_src / 'requirements.txt'
+    wanted = f'{PYTHON} {PICARD_REF} {PYTEST} {hashlib.sha256(requirements.read_bytes()).hexdigest()}'
+    stamp = venv / '.picard-deps'
+    python = venv_python(venv)
+    if python.exists() and stamp.is_file() and stamp.read_text().strip() == wanted:
         return
-    if not VENV_PY.exists():
-        run('uv', 'venv', '--quiet', '--python', PYTHON, VENV)
-    run('uv', 'pip', 'install', '--quiet', '--python', VENV_PY, '-r', requirements, 'pytest')
+    if venv.exists():
+        rmtree(venv)
+    run('uv', 'venv', '--quiet', '--python', PYTHON, venv)
+    run('uv', 'pip', 'install', '--quiet', '--exclude-newer', '24 hours', '--python', python,
+        '-r', requirements, PYTEST)
     stamp.write_text(wanted + '\n')
 
 
@@ -53,7 +78,7 @@ def main():
     ensure_picard_source()
     ensure_venv()
     env = dict(os.environ, PICARD_SRC=str(PICARD_SRC))
-    return subprocess.run([str(VENV_PY), '-m', 'pytest', *sys.argv[1:]], cwd=ROOT, env=env).returncode
+    return subprocess.run([str(venv_python(VENV)), '-m', 'pytest', *sys.argv[1:]], cwd=ROOT, env=env).returncode
 
 
 if __name__ == '__main__':

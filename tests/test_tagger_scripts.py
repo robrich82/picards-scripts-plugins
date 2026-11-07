@@ -1,15 +1,18 @@
 """Run the tagger scripts, in file order, through Picard's script parser on sample track metadata."""
 from pathlib import Path
 
+from picardtestcase import PicardTestCase
 import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / 'tagger-scripts'
 SCRIPT_FILES = sorted(SCRIPTS_DIR.glob('*.ptsp'))
-HIDDEN_TEMPS = ('~aa', '~cvx', '~rest', '~main', '~name', '~cvre', '~clean', '~d', '~loop_value', '~loop_count')
+# Every tag a script may write. Anything else must come out exactly as it went in.
+WRITTEN = {'title', 'discsubtitle', 'originaldate', 'date', 'originalyear',
+           'albumartist', 'albumartistsort', 'albumartists', '~albumartists'}
 
-BASE = {'album': 'Foo', 'title': 'Song', 'date': '2010-05-01',
-        'albumartist': 'Artist', 'albumartistsort': 'Artist',
-        '_albumartists': ['Artist'], '_albumartists_sort': ['Artist']}
+BASE = {'album': 'Foo', 'title': 'Song', 'date': '2010-05-01', 'artist': 'Artist', 'tracknumber': '1',
+        'musicbrainz_albumartistid': 'id-1', 'albumartist': 'Artist', 'albumartistsort': 'Artist',
+        'albumartists': ['Artist'], '_albumartists': ['Artist'], '_albumartists_sort': ['Artist']}
 
 
 def load_scripts():
@@ -18,21 +21,30 @@ def load_scripts():
     return [TaggingScriptInfo.create_from_yaml(p.read_text(encoding='utf-8')) for p in SCRIPT_FILES]
 
 
-def run_scripts(tags):
+def metadata(tags):
     from picard.metadata import Metadata
-    from picard.script import ScriptParser
+    from picard.script.parser import normalize_tagname
 
     m = Metadata()
-    for key, value in {**BASE, **tags}.items():
-        m['~' + key[1:] if key.startswith('_') else key] = value
+    for key, value in tags.items():
+        m[normalize_tagname(key)] = value
+    return m
+
+
+def run_scripts(tags):
+    """Run every script the way Album does when a release loads."""
+    from picard.script import ScriptParser
+
+    m = metadata({**BASE, **tags})
     for script in load_scripts():
         ScriptParser().eval(script.script, m)
+        m.strip_whitespace()
     return m
 
 
 def artists(credit, names, sorts=None, sort_credit=None):
     """Album artist credit as Picard builds it from MusicBrainz."""
-    return {'albumartist': credit, '_albumartists': names,
+    return {'albumartist': credit, 'albumartists': names, '_albumartists': names,
             'albumartistsort': sort_credit or credit, '_albumartists_sort': sorts or names}
 
 
@@ -64,55 +76,96 @@ CASES = [
     ('feat. keeps MB sort name',
      artists('The Beatles feat. Billy Preston', ['The Beatles', 'Billy Preston'],
              ['Beatles, The', 'Preston, Billy'], 'Beatles, The feat. Preston, Billy'),
-     {'albumartist': 'The Beatles', 'albumartistsort': 'Beatles, The'}),
+     {'albumartist': 'The Beatles', 'albumartistsort': 'Beatles, The', 'albumartists': ['The Beatles']}),
     ('featuring', artists('Artist A featuring Artist B', ['Artist A', 'Artist B']),
-     {'albumartist': 'Artist A', 'albumartistsort': 'Artist A'}),
+     {'albumartist': 'Artist A', 'albumartistsort': 'Artist A', 'albumartists': ['Artist A']}),
     ('Feat. capitalised', artists('Artist A Feat. Artist B', ['Artist A', 'Artist B']),
      {'albumartist': 'Artist A'}),
     ('ft.', artists('Artist A ft. Artist B', ['Artist A', 'Artist B']), {'albumartist': 'Artist A'}),
+    ('ft without a dot', artists('Artist A ft Artist B', ['Artist A', 'Artist B']),
+     {'albumartist': 'Artist A', 'albumartists': ['Artist A']}),
+    ('feat. without a space', artists('Artist A feat.Artist B', ['Artist A', 'Artist B']),
+     {'albumartist': 'Artist A'}),
+    ('ft. without a space', artists('Artist A ft.Artist B', ['Artist A', 'Artist B']),
+     {'albumartist': 'Artist A'}),
+    ('meets', artists('Artist A meets Artist B', ['Artist A', 'Artist B']), {'albumartist': 'Artist A'}),
+    ('produced by', artists('Artist A produced by Artist B', ['Artist A', 'Artist B']),
+     {'albumartist': 'Artist A'}),
     ('two main artists', artists('Artist A & Artist B', ['Artist A', 'Artist B']),
-     {'albumartist': 'Various Artists', 'albumartistsort': 'Various Artists'}),
-    ('two main + featured', artists('A & B feat. C', ['A', 'B', 'C']), {'albumartist': 'Various Artists'}),
-    ('one main, two featured', artists('A feat. B & C', ['A', 'B', 'C']), {'albumartist': 'A'}),
-    ('featured name inside main name', artists('Aimer feat. Ai', ['Aimer', 'Ai']), {'albumartist': 'Aimer'}),
+     {'albumartist': 'Various Artists', 'albumartistsort': 'Various Artists',
+      'albumartists': ['Artist A', 'Artist B']}),
+    ('two main + featured', artists('A & B feat. C', ['A', 'B', 'C']),
+     {'albumartist': 'Various Artists', 'albumartists': ['A', 'B']}),
+    ('one main, two featured', artists('A feat. B & C', ['A', 'B', 'C']),
+     {'albumartist': 'A', 'albumartists': ['A']}),
+    ('featured name inside main name', artists('Aimer feat. Ai', ['Aimer', 'Ai']),
+     {'albumartist': 'Aimer', 'albumartists': ['Aimer']}),
     ('"feat" inside a word', artists('Defeat Squad feat. X', ['Defeat Squad', 'X']),
      {'albumartist': 'Defeat Squad'}),
+    ('"ft" starting a word', artists('Band Ftw', ['Band Ftw']), {'albumartist': 'Band Ftw'}),
+    ('join word inside one name', artists('East Meets West', ['East Meets West']),
+     {'albumartist': 'East Meets West', 'albumartists': ['East Meets West']}),
+    ('"feat" word inside one name', artists('Little Feat & Friends', ['Little Feat & Friends']),
+     {'albumartist': 'Little Feat & Friends'}),
     ('single artist untouched', artists('The Beatles', ['The Beatles'], ['Beatles, The'], 'Beatles, The'),
-     {'albumartist': 'The Beatles', 'albumartistsort': 'Beatles, The'}),
+     {'albumartist': 'The Beatles', 'albumartistsort': 'Beatles, The', 'albumartists': ['The Beatles']}),
+    ('names not matching the credit left alone',
+     artists('ArtistA', ['Artist A'], ['A, Artist'], 'Custom Sort'),
+     {'albumartist': 'ArtistA', 'albumartistsort': 'Custom Sort', 'albumartists': ['Artist A']}),
     ('parentheses in a name kept', artists('Some Band (Japan)', ['Some Band (Japan)']),
      {'albumartist': 'Some Band (Japan)', 'albumartistsort': 'Some Band (Japan)'}),
     ('name starting with CV kept', artists('CVS Band', ['CVS Band']), {'albumartist': 'CVS Band'}),
+    ('name that is only a CV credit not counted', artists('A (CV.X)', ['A', '(CV.X)']),
+     {'albumartist': 'X'}),
     # Voice Actor: one credit "Character (CV. Actor)"
     ('CV. one credit',
      artists('春日未来 (CV.山崎はるか)', ['春日未来 (CV.山崎はるか)'], ['Yamazaki, Haruka'], 'Yamazaki, Haruka'),
-     {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka', '~albumartists': ['山崎はるか']}),
+     {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka',
+      'albumartists': ['山崎はるか'], '~albumartists': ['山崎はるか']}),
     ('CV. one credit, spaced', artists('Char A (CV. Actor X)', ['Char A (CV. Actor X)'], ['X, Actor'], 'X, Actor'),
-     {'albumartist': 'Actor X', 'albumartistsort': 'X, Actor'}),
+     {'albumartist': 'Actor X', 'albumartistsort': 'X, Actor', 'albumartists': ['Actor X']}),
     ('CV in sort string falls back to regex', artists('Char A (CV. Actor X)', ['Char A (CV. Actor X)']),
      {'albumartist': 'Actor X', 'albumartistsort': 'Actor X'}),
+    ('CV with commas in the sort string',
+     artists('Mirai Kasuga (CV. Haruka Yamazaki)', ['Mirai Kasuga (CV. Haruka Yamazaki)'],
+             ['Kasuga, Mirai (CV. Yamazaki, Haruka)'], 'Kasuga, Mirai (CV. Yamazaki, Haruka)'),
+     {'albumartist': 'Haruka Yamazaki', 'albumartistsort': 'Yamazaki, Haruka'}),
+    ('CV with & in the character name', artists('Tom & Jerry (CV. Actor X)', ['Tom & Jerry (CV. Actor X)']),
+     {'albumartist': 'Actor X', 'albumartists': ['Actor X']}),
+    ('CV with , in the character name', artists('Tom, Jerry (CV. Actor X)', ['Tom, Jerry (CV. Actor X)']),
+     {'albumartist': 'Actor X'}),
+    ('CV with 、 in the character name', artists('トム、ジェリー (CV.X)', ['トム、ジェリー (CV.X)']),
+     {'albumartist': 'X'}),
+    ('empty CV. kept', artists('Char (CV.)', ['Char (CV.)']),
+     {'albumartist': 'Char (CV.)', 'albumartists': ['Char (CV.)']}),
+    ('blank CV: kept', artists('Char (CV: )', ['Char (CV: )']), {'albumartist': 'Char (CV: )'}),
     ('CV. two credits joined with 、',
      artists('春日未来 (CV.山崎はるか)、最上静香 (CV.田所あずさ)',
              ['春日未来 (CV.山崎はるか)', '最上静香 (CV.田所あずさ)'], ['Yamazaki, Haruka', 'Tadokoro, Azusa']),
-     {'albumartist': 'Various Artists', '~albumartists': ['山崎はるか', '田所あずさ']}),
+     {'albumartist': 'Various Artists', 'albumartists': ['山崎はるか', '田所あずさ'],
+      '~albumartists': ['山崎はるか', '田所あずさ']}),
     ('CV. credit feat. CV. credit',
      artists('春日未来 (CV.山崎はるか) feat. 最上静香 (CV.田所あずさ)',
              ['春日未来 (CV.山崎はるか)', '最上静香 (CV.田所あずさ)'], ['Yamazaki, Haruka', 'Tadokoro, Azusa']),
-     {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka'}),
+     {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka', 'albumartists': ['山崎はるか']}),
     ('CV. credits joined with "with"',
      artists('Char A (CV. X) with Char B (CV. Y)', ['Char A (CV. X)', 'Char B (CV. Y)'], ['X', 'Y']),
-     {'albumartist': 'Various Artists'}),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y']}),
     # Voice Actor: character and actor credited as two artists
     ('CV. two artists', artists('Chin-lan Chang(CV.Maki Kawase)', ['Chin-lan Chang', 'Maki Kawase'],
                                 ['Chang, Chin-lan', 'Kawase, Maki'], 'Chang, Chin-lan(CV.Kawase, Maki)'),
-     {'albumartist': 'Maki Kawase', 'albumartistsort': 'Kawase, Maki'}),
+     {'albumartist': 'Maki Kawase', 'albumartistsort': 'Kawase, Maki', 'albumartists': ['Maki Kawase']}),
     ('CV: two artists', artists('SQ(CV:Akari Kito)', ['SQ', 'Akari Kito'], ['SQ', 'Kito, Akari'],
                                 'SQ(CV:Kito, Akari)'),
-     {'albumartist': 'Akari Kito', 'albumartistsort': 'Kito, Akari'}),
+     {'albumartist': 'Akari Kito', 'albumartistsort': 'Kito, Akari', 'albumartists': ['Akari Kito']}),
     ('CV: one credit', artists('SQ(CV:Akari Kito)', ['SQ(CV:Akari Kito)'], ['Kito, Akari'], 'Kito, Akari'),
      {'albumartist': 'Akari Kito', 'albumartistsort': 'Kito, Akari'}),
     ('CV: spaced', artists('SQ (CV: Akari Kito)', ['SQ', 'Akari Kito'], ['SQ', 'Kito, Akari'],
                            'SQ (CV: Kito, Akari)'),
      {'albumartist': 'Akari Kito', 'albumartistsort': 'Kito, Akari'}),
+    ('character with & as two artists', artists('Tom & Jerry(CV.Actor X)', ['Tom & Jerry', 'Actor X'],
+                                                ['Tom & Jerry', 'X, Actor'], 'Tom & Jerry(CV.X, Actor)'),
+     {'albumartist': 'Actor X', 'albumartistsort': 'X, Actor', 'albumartists': ['Actor X']}),
     ('full-width CV： two artists', artists('春日未来（CV：山崎はるか）', ['春日未来', '山崎はるか'],
                                             ['Kasuga, Mirai', 'Yamazaki, Haruka'], 'Kasuga, Mirai（CV：Yamazaki, Haruka）'),
      {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka'}),
@@ -120,10 +173,10 @@ CASES = [
                                            ['Yamazaki, Haruka'], 'Yamazaki, Haruka'),
      {'albumartist': '山崎はるか', 'albumartistsort': 'Yamazaki, Haruka'}),
     ('two characters, two actors', artists('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y']),
-     {'albumartist': 'Various Artists', 'albumartistsort': 'Various Artists'}),
+     {'albumartist': 'Various Artists', 'albumartistsort': 'Various Artists', 'albumartists': ['X', 'Y']}),
     ('character feat. character', artists('A(CV:X) feat. B(CV:Y)', ['A', 'X', 'B', 'Y'],
                                           ['A', 'X-sort', 'B', 'Y-sort'], 'A(CV:X-sort) feat. B(CV:Y-sort)'),
-     {'albumartist': 'X', 'albumartistsort': 'X-sort'}),
+     {'albumartist': 'X', 'albumartistsort': 'X-sort', 'albumartists': ['X']}),
 ]
 
 
@@ -131,10 +184,75 @@ CASES = [
 def test_scripts(tags, expected):
     result = run_scripts(tags)
     for key, value in expected.items():
-        assert result.getall(key) == value if isinstance(value, list) else result[key] == value, key
+        if isinstance(value, list):
+            assert result.getall(key) == value, key
+        else:
+            assert result[key] == value, key
 
 
-def test_scripts_leave_no_temporary_variables():
-    result = run_scripts({**artists('SQ(CV:Akari Kito) feat. B', ['SQ', 'Akari Kito', 'B']),
-                          'originaldate': '1995', 'title': 'Song - Live'})
-    assert [t for t in HIDDEN_TEMPS if t in result] == []
+@pytest.mark.parametrize('tags', [c[1] for c in CASES], ids=[c[0] for c in CASES])
+def test_scripts_change_nothing_else(tags):
+    before = metadata({**BASE, **tags})
+    result = run_scripts(tags)
+    assert set(result) - set(before) <= WRITTEN, 'new tags or leftover temporary variables'
+    unchanged = set(before) - WRITTEN
+    assert {k: result.getall(k) for k in unchanged} == {k: before.getall(k) for k in unchanged}
+
+
+class TestTrackFiles(PicardTestCase):
+    """Run the scripts the way Picard does when files are matched to a track."""
+
+    def setUp(self):
+        super().setUp()
+        self.patch_tagger_instance('picard.item')
+        self.set_config_values(setting={
+            'enable_tagger_scripts': True,
+            'list_of_scripts': [(i, s.title, True, s.script) for i, s in enumerate(load_scripts())],
+            'clear_existing_tags': True,
+            'preserved_tags': [],
+        })
+
+    def make_track(self, tags):
+        from picard.script import iter_active_tagging_scripts
+        from picard.script import ScriptParser
+        from picard.track import Track
+
+        track = Track('track-id')
+        track.metadata.update(metadata({**BASE, **tags}))
+        track.orig_metadata.copy(track.metadata)
+        for script in iter_active_tagging_scripts():
+            ScriptParser().eval(script.content, track.metadata)
+            track.metadata.strip_whitespace()
+            track.scripted_metadata.update(track.metadata)
+        return track
+
+    def match(self, track, name, file_tags):
+        from picard.file import File
+
+        file = File(f'C:/music/{name}.mp3')
+        file.orig_metadata.update(metadata(file_tags))
+        file.metadata.copy(file.orig_metadata)
+        file.parent_item = track
+        track.add_file(file)
+        return file.metadata
+
+    def test_clear_existing_tags_drops_old_file_values(self):
+        track = self.make_track({'date': ''})
+        result = self.match(track, 'a', {'originaldate': '1990', 'date': '1991', 'discsubtitle': 'old disc'})
+        assert (result['originaldate'], result['date'], result['discsubtitle'], result['originalyear']) == (
+            '', '', '', '')
+
+    def test_kept_file_values_still_padded_without_clear_existing_tags(self):
+        self.set_config_values(setting={'clear_existing_tags': False})
+        track = self.make_track({'date': ''})
+        result = self.match(track, 'a', {'originaldate': '1990', 'discsubtitle': 'old disc'})
+        assert (result['originaldate'], result['date'], result['discsubtitle']) == (
+            '1990-01-01', '1990-01-01', 'Old Disc')
+
+    def test_every_matched_file_gets_the_same_result(self):
+        track = self.make_track({**artists('SQ(CV:Akari Kito & Y)', ['SQ(CV:Akari Kito & Y)']),
+                                 'originaldate': '1995'})
+        files = [self.match(track, name, {'albumartist': 'Old', 'albumartists': ['Old']}) for name in 'ab']
+        for result in [track.metadata, *files]:
+            assert (result['albumartist'], result.getall('albumartists'), result['date']) == (
+                'Akari Kito & Y', ['Akari Kito & Y'], '1995-01-01')

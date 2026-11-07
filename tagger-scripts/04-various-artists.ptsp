@@ -1,7 +1,8 @@
 title: Various Artists
 script_language_version: '1.1'
 script: |
-  $set(_aa,$rreplace(%albumartist%,\\s+\(?i:feat\\.?|featuring|ft\\.|meets|produced by\)\\s.*,))
+  $set(_feat,\\s+\(?i:\(?:feat|ft\)\\.\\s*|\(?:feat|ft|featuring|meets|produced by\)\\s\).*)
+  $set(_aa,$rreplace(%albumartist%,%_feat%,))
   $set(_cvx,\\s*[\(（]CV[.:．：][^\(\)（）]*[\)）])
   $set(_rest,$rreplace(%_aa%,%_cvx%,))
   $set(_main,0)
@@ -13,11 +14,21 @@ script: |
     )
   )
   $if($gt(%_main%,1),
+    $set(_rest,%_aa%)
+    $set(_va,)
+    $foreach(%_albumartists%,
+      $if($in(%_rest%,%_loop_value%),
+        $set(_rest,$substr(%_rest%,$add($find(%_rest%,%_loop_value%),$len(%_loop_value%))))
+        $if($not($rsearch(%_rest%,^\\s*[\(（]CV[.:．：])),$set(_va,%_va%; %_loop_value%))
+      )
+    )
+    $if(%_va%,$setmulti(albumartists,$substr(%_va%,2)))
     $set(albumartist,Various Artists)
     $set(albumartistsort,Various Artists),
-    $if($ne(%_aa%,%albumartist%),
+    $if($and($eq(%_main%,1),$ne(%_aa%,%albumartist%)),
       $set(albumartist,%_aa%)
+      $set(albumartists,%_aa%)
       $set(albumartistsort,$getmulti(%_albumartists_sort%,0))
     )
   )
-  $unset(_aa)$unset(_cvx)$unset(_rest)$unset(_main)$unset(_name)
+  $unset(_feat)$unset(_aa)$unset(_cvx)$unset(_rest)$unset(_main)$unset(_name)$unset(_va)
