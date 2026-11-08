@@ -1,6 +1,6 @@
 # picards-scripts-plugins
 
-My tagger scripts for [MusicBrainz Picard](https://picard.musicbrainz.org/) 3, tested against Picard 3.0.4.
+My tagger scripts and plugin for [MusicBrainz Picard](https://picard.musicbrainz.org/) 3, tested against Picard 3.0.4.
 
 ## Tagger scripts
 
@@ -18,9 +18,21 @@ My tagger scripts for [MusicBrainz Picard](https://picard.musicbrainz.org/) 3, t
 
 Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn't already, then **Import** and pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
 
+## Plugins
+
+| Plugin | What it does |
+| --- | --- |
+| [`highest-disc-total`](plugins/highest-disc-total) | Lowers Total Discs to the highest disc number that has matched files, e.g. to `1` for a CD+DVD release when you only have the CD. Never raises it above the MusicBrainz value, and restores it when files for a later disc are matched. |
+
+### Installing a plugin
+
+Options → Options… → Plugins → **Install**, then the **Local** tab, and pick the plugin's folder.
+
+Or, with Picard closed, `picard-cli --yes plugins install C:/path/to/plugins/highest-disc-total`. Use forward slashes: a path with no `/` is looked up as a registry ID. On Windows the command may end with a `UnicodeEncodeError` traceback while printing its result; the plugin is installed anyway.
+
 ## Tests
 
-The tests run every script, in file order, through Picard's real script parser on sample tracks. They need `git` and [`uv`](https://docs.astral.sh/uv/) 0.9.17 or later:
+The tests run every script, in file order, through Picard's real script parser on sample tracks, and load the plugin through Picard's plugin loader. They need `git` and [`uv`](https://docs.astral.sh/uv/) 0.9.17 or later:
 
 ```sh
 python tools/run_tests.py
