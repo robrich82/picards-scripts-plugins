@@ -1,10 +1,10 @@
 title: Various Artists
 script_language_version: '1.1'
 script: |
-  $unset(_feat)$unset(_aa)$unset(_name)$unset(_va)$unset(_incv)
+  $unset(_feat)$unset(_aa)$unset(_aas)$unset(_name)$unset(_va)$unset(_incv)
   $set(_cvx,\\s*[\(（][CＣ][VＶ][.:．：][^\(\)（）]*[\)）])
   $set(_cv,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
-  $set(_featre,\(?i\)[^\\w\)）]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_featre,\(?i\)[^\\w\)）\\]］】」』]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
   $set(_joinre,^\(\(?:[^\\w]|\(?i:feat|ft|featuring|meets|produced by\)\\b|[CＣ][VＶ]\(?=[.:．：]\)\)*\))
   $set(_rest,%albumartist%)
   $set(_main,0)
@@ -19,8 +19,10 @@ script: |
       $set(_inblock,$and(%_incv%,$not($rsearch(%_sep%,[\)）]))))
       $if($and($not(%_inblock%),$rsearch(%_sep%,%_featre%)),
         $set(_feat,1)
-        $set(_aa,%_aa%$rreplace(%_sep%,%_featre%,)),
+        $set(_aa,%_aa%$rreplace(%_sep%,%_featre%,))
+        $set(_aas,%_aas%$rreplace(%_sep%,%_featre%,)),
         $set(_aa,%_aa%%_sep%%_loop_value%)
+        $set(_aas,%_aas%%_sep%$getmulti(%_albumartists_sort%,$sub(%_loop_count%,1)))
         $if($and(%_name%,$or($not(%_open%),%_incv%),$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
         $if($or(%_open%,%_inblock%),
           $set(_name,%_loop_value%)
@@ -40,8 +42,8 @@ script: |
     $if($and($eq(%_main%,1),%_feat%),
       $set(albumartist,%_aa%)
       $set(albumartists,%_aa%)
-      $set(albumartistsort,$if(%_incv%,$rreplace(%albumartistsort%,%_featre%,),$if2($getmulti(%_albumartists_sort%,0),%_aa%)))
+      $set(albumartistsort,$if2(%_aas%,%_aa%))
     )
   )
   $unset(_cvx)$unset(_cv)$unset(_featre)$unset(_joinre)$unset(_rest)$unset(_main)$unset(_skip)$unset(_pos)$unset(_sep)
-  $unset(_open)$unset(_inblock)$unset(_feat)$unset(_aa)$unset(_name)$unset(_va)$unset(_incv)
+  $unset(_open)$unset(_inblock)$unset(_feat)$unset(_aa)$unset(_aas)$unset(_name)$unset(_va)$unset(_incv)

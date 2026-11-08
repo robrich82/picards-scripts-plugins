@@ -235,6 +235,21 @@ CASES = [
     ('two actors in one full-width CV block (feat.)',
      artists('A（CV：X、Y）（feat. B）', ['A', 'X', 'Y', 'B'], ['A-s', 'X-s', 'Y-s', 'B-s'], 'A-s（CV：X-s、Y-s）（feat. B-s）'),
      {'albumartist': 'X、Y', 'albumartistsort': 'X-s、Y-s'}),
+    ('feat word inside an actor sort name',
+     artists('A(CV:X & Y) feat. B', ['A', 'X', 'Y', 'B'], ['A-s', 'Kito Meets', 'Y-s', 'B-s'],
+             'A-s(CV:Kito Meets & Y-s) feat. B-s'),
+     {'albumartist': 'X & Y', 'albumartistsort': 'Kito Meets & Y-s'}),
+    ('feat word inside a character name, several actors, feat.',
+     artists('East Meets West(CV:X & Y) feat. B', ['East Meets West', 'X', 'Y', 'B'], ['E-s', 'X-s', 'Y-s', 'B-s'],
+             'E-s(CV:X-s & Y-s) feat. B-s'),
+     {'albumartist': 'X & Y', 'albumartistsort': 'X-s & Y-s'}),
+    ('feat inside a CV block, then feat.',
+     artists('A(CV:X feat. Y) feat. B', ['A', 'X', 'Y', 'B'], ['A-s', 'X-s', 'Y-s', 'B-s'],
+             'A-s(CV:X-s feat. Y-s) feat. B-s'),
+     {'albumartist': 'X feat. Y', 'albumartistsort': 'X-s feat. Y-s'}),
+    ('CV credit in the join text, feat.',
+     artists('A (CV:X) feat. B', ['A', 'B'], ['A-s', 'B-s'], 'A-s (CV:X) feat. B-s'),
+     {'albumartist': 'X', 'albumartistsort': 'X'}),
     ('unit credits with several actors',
      artists('A(CV:X、Y) & B(CV:Z)', ['A', 'X', 'Y', 'B', 'Z']),
      {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
@@ -255,6 +270,13 @@ CASES = [
       for sep, end in [(' [', ']'), ('【', '】'), (' ［', '］'), (', ', ''), ('、', ''), ('，', ''), (' - ', ''),
                        (' – ', ''), (' — ', ''), (' / ', ''), ('／', ''), (' & ', ''), (' + ', ''), ('; ', ''),
                        (' ～', '～'), ('「', '」')]),
+    ('closing bracket before feat. kept', artists('A [JP] feat. B', ['A', 'B']),
+     {'albumartist': 'A [JP]', 'albumartists': ['A [JP]']}),
+    ('closing 』 before feat. kept', artists('A 『X』 feat. B', ['A', 'B']), {'albumartist': 'A 『X』'}),
+    ('"ft" ending a word is no feat', artists('A soft B', ['A', 'B']), {'albumartist': 'Various Artists'}),
+    ('"ft" starting a word is no feat', artists('A ftw B', ['A', 'B']), {'albumartist': 'Various Artists'}),
+    ('featured name inside a capitalised "Feat"', artists('A Feat. e', ['A', 'e']), {'albumartist': 'A'}),
+    ('featured name inside "Featuring"', artists('A Featuring in', ['A', 'in']), {'albumartist': 'A'}),
     ('name starting with punctuation', artists('? & Who?', ['?', 'Who?']),
      {'albumartist': 'Various Artists', 'albumartists': ['?', 'Who?']}),
     ('name starting with punctuation inside a later name', artists('A & ? & Who?', ['A', '?', 'Who?']),
@@ -356,11 +378,11 @@ class TestTrackFiles(PicardTestCase):
             'Various Artists', 'Various Artists', ['Artist A', 'Artist B'])
 
     def test_hidden_variables_in_file_tags_ignored(self):
-        junk = {f'~{name}': 'Junk' for name in ('feat', 'aa', 'name', 'va', 'incv')}
-        for credit, names, expected in [('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y'], ('Various Artists', ['X', 'Y'])),
-                                        ('A feat. B', ['A', 'B'], ('A', ['A']))]:
+        junk = {f'~{name}': 'Junk' for name in ('feat', 'aa', 'aas', 'name', 'va', 'incv')}
+        for credit, names, expected in [('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y'], ('Various Artists', ['X', 'Y'], 'Various Artists')),
+                                        ('A feat. B', ['A', 'B'], ('A', ['A'], 'A'))]:
             result = self.match(self.make_track(artists(credit, names)), 'a', junk)
-            assert (result['albumartist'], result.getall('albumartists')) == expected, credit
+            assert (result['albumartist'], result.getall('albumartists'), result['albumartistsort']) == expected, credit
 
     def test_every_matched_file_gets_the_same_result(self):
         track = self.make_track({**artists('SQ(CV:Akari Kito & Y)', ['SQ(CV:Akari Kito & Y)']),
