@@ -34,7 +34,7 @@ Or, with Picard closed, `picard-cli --yes plugins install C:/path/to/highest-dis
 
 ## Tests
 
-The tests run every script, in file order, through Picard's real script parser on sample tracks, and load the plugin through Picard's plugin loader. They need `git` and [`uv`](https://docs.astral.sh/uv/) 0.9.17 or later:
+The tests run every script, in file order, through Picard's real script parser on sample tracks, and load the plugin through Picard's plugin loader. They need `git` and [`uv`](https://docs.astral.sh/uv/); `mise install` installs the pinned uv:
 
 ```sh
 python tools/run_tests.py
