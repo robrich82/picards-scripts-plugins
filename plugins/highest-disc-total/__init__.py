@@ -1,4 +1,5 @@
-"""Set Total Discs to the highest disc number that has matched files."""
+"""Set Total Discs to the number of discs with matched files, and renumber later discs down to
+close the gaps."""
 
 from picard.album import NatAlbum
 from picard.plugin3.api import Track
@@ -19,6 +20,11 @@ def _int(value):
         return None
 
 
+def _number(n, like):
+    """n, zero-padded to the width of like when like is: a script's 01 stays 01."""
+    return str(n).zfill(len(like)) if like.startswith('0') else str(n)
+
+
 def _album(track):
     """The track's album, or None for standalone recordings: they have no discs, and the
     album can hold thousands of tracks that would be rescanned on every file event."""
@@ -32,9 +38,10 @@ def _baseline(track, tag):
     return track.scripted_metadata[tag] or track.orig_metadata[tag]
 
 
-def highest_disc_with_files(album):
-    discs = [_int(_baseline(t, 'discnumber')) for t in album.tracks if t.files]
-    return max((d for d in discs if d), default=None)
+def discs_with_files(album):
+    """Sorted, distinct disc numbers of the tracks that have matched files."""
+    discs = {_int(_baseline(t, 'discnumber')) for t in album.tracks if t.files}
+    return sorted(d for d in discs if d is not None and d > 0)
 
 
 def _set_tag(file, tag, baseline, target):
@@ -49,21 +56,31 @@ def _set_tag(file, tag, baseline, target):
     return True
 
 
-def apply_to_file(track, file, highest):
-    # Cap at the track's own total so it can go back up when files for a later disc are matched.
-    mb_total = _baseline(track, 'totaldiscs')
-    if not _int(mb_total) or not highest:
+def apply_to_file(track, file, discs):
+    if not discs:
         return False
-    return _set_tag(file, 'totaldiscs', mb_total, str(min(_int(mb_total), highest)))
+    changed = False
+    mb_disc = _baseline(track, 'discnumber')
+    if _int(mb_disc) in discs:
+        new_disc = discs.index(_int(mb_disc)) + 1
+        changed = _set_tag(file, 'discnumber', mb_disc, _number(new_disc, mb_disc))
+    mb_total = _baseline(track, 'totaldiscs')
+    if _int(mb_total):
+        # Capped at the track's own total, so it goes back up when a missing disc is matched,
+        # and never below a disc number left in place (preserved or edited).
+        kept_disc = _int(file.metadata['discnumber']) or 0
+        total = min(_int(mb_total), max(len(discs), kept_disc))
+        changed = _set_tag(file, 'totaldiscs', mb_total, _number(total, mb_total)) or changed
+    return changed
 
 
 def apply_to_album(album):
     if album is None:
         return
-    highest = highest_disc_with_files(album)
+    discs = discs_with_files(album)
     for track in album.tracks:
         for file in track.files:
-            if apply_to_file(track, file, highest):
+            if apply_to_file(track, file, discs):
                 file.update()
 
 
@@ -83,7 +100,7 @@ def on_file_pre_save(api, file):
         return
     album = _album(track)
     if album is not None:
-        apply_to_file(track, file, highest_disc_with_files(album))
+        apply_to_file(track, file, discs_with_files(album))
 
 
 def enable(api):
