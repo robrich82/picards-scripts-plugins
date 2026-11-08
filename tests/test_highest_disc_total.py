@@ -177,6 +177,35 @@ class HighestDiscTotalTest(PicardTestCase):
         run_file_pre_save_processors(f1)
         assert f1.metadata['totaldiscs'] == '7'
 
+    def test_edited_total_kept(self):
+        from picard.file import run_file_pre_save_processors
+
+        album = self.make_album([3, 3])
+        f1 = self.match(album, 1)
+        f1.metadata['totaldiscs'] = '5'  # typed into the metadata box
+        self.match(album, 2)
+        run_file_pre_save_processors(f1)
+        assert f1.metadata['totaldiscs'] == '5'
+
+    def test_edited_total_kept_on_file_the_plugin_never_changed(self):
+        from picard.file import run_file_pre_save_processors
+
+        album = self.make_album([3, 3])
+        self.match(album, 1)
+        f2 = self.match(album, 2)  # arrives with MusicBrainz's 2, already the target
+        f2.metadata['totaldiscs'] = '4'
+        run_file_pre_save_processors(f2)
+        assert f2.metadata['totaldiscs'] == '4'
+
+    def test_total_set_by_plugin_still_follows_later_discs(self):
+        album = self.make_album([2, 2, 2])
+        f1 = self.match(album, 1)
+        assert f1.metadata['totaldiscs'] == '1'
+        self.match(album, 2)
+        assert f1.metadata['totaldiscs'] == '2'
+        self.match(album, 3)
+        assert f1.metadata['totaldiscs'] == '3'
+
     def test_pre_save_fixes_total_reset_without_the_add_hook(self):
         from picard.file import run_file_pre_save_processors
 

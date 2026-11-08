@@ -1,8 +1,14 @@
 """Set Total Discs to the highest disc number that has matched files."""
 
+from weakref import WeakKeyDictionary
+
 from picard.album import NatAlbum
 from picard.plugin3.api import Track
 from picard.tags.preserved import UserPreservedTags  # what File.copy_metadata checks
+
+# file -> {tag: value the plugin last wrote}. Any value other than this or MusicBrainz's
+# was set by the user or the session, and is left alone.
+_written = WeakKeyDictionary()
 
 
 def _int(value):
@@ -24,17 +30,24 @@ def highest_disc_with_files(album):
     return max((d for d in discs if d), default=None)
 
 
+def _set_tag(file, tag, mb_value, target):
+    current = file.metadata[tag]
+    if current == target or tag in UserPreservedTags():
+        return False
+    if current != mb_value and current != _written.get(file, {}).get(tag):
+        return False
+    file.metadata[tag] = target
+    _written.setdefault(file, {})[tag] = target
+    return True
+
+
 def apply_to_file(track, file, highest):
     # Cap at the track's own totaldiscs (MusicBrainz's value, after scripts) so the total
     # can go back up when files for a later disc are matched.
-    mb_total = _int(track.metadata['totaldiscs'])
-    if not mb_total or not highest or 'totaldiscs' in UserPreservedTags():
+    mb_total = track.metadata['totaldiscs']
+    if not _int(mb_total) or not highest:
         return False
-    target = str(min(mb_total, highest))
-    if file.metadata['totaldiscs'] == target:
-        return False
-    file.metadata['totaldiscs'] = target
-    return True
+    return _set_tag(file, 'totaldiscs', mb_total, str(min(_int(mb_total), highest)))
 
 
 def apply_to_album(album):

@@ -22,7 +22,7 @@ Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn
 
 | Plugin | What it does |
 | --- | --- |
-| [`highest-disc-total`](plugins/highest-disc-total) | Lowers Total Discs to the highest disc number that has matched files, e.g. to `1` for a CD+DVD release when you only have the CD. Never raises it above the MusicBrainz value, and restores it when files for a later disc are matched. |
+| [`highest-disc-total`](plugins/highest-disc-total) | Lowers Total Discs to the highest disc number that has matched files, e.g. to `1` for a CD+DVD release when you only have the CD. Never raises it above the MusicBrainz value, restores it when files for a later disc are matched, and leaves alone a Total Discs you have edited. |
 
 ### Installing a plugin
 
