@@ -53,6 +53,11 @@ class HighestDiscTotalTest(PicardTestCase):
     def track(self, album, disc, n=1):
         return next(t for t in album.tracks if t.id == f'd{disc}t{n}')
 
+    def set_mb(self, track, tag, value):
+        # As if MusicBrainz (and tagger scripts) had given the track this value.
+        for metadata in (track.metadata, track.orig_metadata, track.scripted_metadata):
+            metadata[tag] = value
+
     def match(self, album, disc, n=1, file_tags=None):
         from picard.file import File
 
@@ -134,21 +139,21 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_each_file_capped_by_its_own_track_total(self):
         album = self.make_album([2, 2])
         for n in (1, 2):
-            self.track(album, 2, n).metadata['totaldiscs'] = '1'
+            self.set_mb(self.track(album, 2, n), 'totaldiscs', '1')
         f1, f2 = self.match(album, 1), self.match(album, 2)
         assert (f1.metadata['totaldiscs'], f2.metadata['totaldiscs']) == ('2', '1')
 
     def test_never_raises_above_musicbrainz_total(self):
         album = self.make_album([2, 2])
         for t in album.tracks:  # MusicBrainz says 1 disc (e.g. edited), files on disc 2
-            t.metadata['totaldiscs'] = '1'
+            self.set_mb(t, 'totaldiscs', '1')
         self.match(album, 2)
         assert self.totals(album) == ['1']
 
     def test_unusable_disc_number_ignored(self):
         for discnumber in ('', '0', 'x'):
             album = self.make_album([2, 2])
-            self.track(album, 1).metadata['discnumber'] = discnumber
+            self.set_mb(self.track(album, 1), 'discnumber', discnumber)
             with self.assertNoLogs('main', level='ERROR'):
                 self.match(album, 1)
             assert self.totals(album) == ['2'], discnumber
@@ -156,7 +161,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_no_musicbrainz_total_left_alone(self):
         album = self.make_album([3, 3])
         for t in album.tracks:
-            t.metadata['totaldiscs'] = ''
+            self.set_mb(t, 'totaldiscs', '')
         with self.assertNoLogs('main', level='ERROR'):
             self.match(album, 1)
         assert self.totals(album) == ['']
@@ -173,9 +178,9 @@ class HighestDiscTotalTest(PicardTestCase):
 
         self.set_config_values(setting={'preserved_tags': ['totaldiscs']})
         album = self.make_album([3, 3])
-        f1 = self.match(album, 1, file_tags={'totaldiscs': '7'})
+        f1 = self.match(album, 1, file_tags={'totaldiscs': '2'})  # MusicBrainz's value, so only preserving keeps it
         run_file_pre_save_processors(f1)
-        assert f1.metadata['totaldiscs'] == '7'
+        assert f1.metadata['totaldiscs'] == '2'
 
     def test_edited_total_kept(self):
         from picard.file import run_file_pre_save_processors
@@ -197,6 +202,66 @@ class HighestDiscTotalTest(PicardTestCase):
         run_file_pre_save_processors(f2)
         assert f2.metadata['totaldiscs'] == '4'
 
+    def test_edit_on_track_row_kept(self):
+        from picard.file import run_file_pre_save_processors
+        from picard.ui.metadatabox import apply_tag_values
+
+        album = self.make_album([3, 3])
+        self.match(album, 1)
+        f2 = self.match(album, 2)  # arrives with MusicBrainz's 2, so the plugin never writes it
+        # A track with one file shows as one row; editing it writes the track and the file.
+        list(apply_tag_values([self.track(album, 2), f2], 'totaldiscs', ['5']))
+        run_file_pre_save_processors(f2)
+        assert f2.metadata['totaldiscs'] == '5'
+
+    def test_musicbrainz_total_typed_back_kept(self):
+        from picard.file import run_file_pre_save_processors
+
+        album = self.make_album([3, 3])
+        f1 = self.match(album, 1)
+        assert f1.metadata['totaldiscs'] == '1'
+        f1.metadata['totaldiscs'] = '2'
+        run_file_pre_save_processors(f1)
+        assert f1.metadata['totaldiscs'] == '2'
+
+    def test_edit_after_file_moved_kept(self):
+        from picard.file import run_file_pre_save_processors
+
+        album = self.make_album([3, 3, 3])
+        f1 = self.match(album, 1)
+        assert f1.metadata['totaldiscs'] == '1'
+        self.match(album, 2)
+        f1.move(self.track(album, 3))  # target is now MusicBrainz's 3, so nothing is written
+        f1.metadata['totaldiscs'] = '1'  # the value the plugin wrote before the move
+        run_file_pre_save_processors(f1)
+        assert f1.metadata['totaldiscs'] == '1'
+
+    def test_file_added_again_to_its_track(self):
+        album = self.make_album([3, 3])
+        f1 = self.match(album, 1)
+        self.track(album, 1).add_file(f1)  # resets the file's tags to the track's, but not ~ variables
+        assert f1.metadata['totaldiscs'] == '1'
+
+    def test_plugin_reload_still_follows_its_own_values(self):
+        album = self.make_album([3, 3])
+        f1 = self.match(album, 1)
+        self.plugin.disable()  # also how a plugin update reloads it
+        self.plugin.load_module()
+        self.plugin.enable(self.tagger)
+        self.match(album, 2)
+        assert f1.metadata['totaldiscs'] == '2'
+
+    def test_without_tagger_scripts_uses_musicbrainz_values(self):
+        from picard.metadata import Metadata
+
+        album = self.make_album([3, 3])
+        for t in album.tracks:
+            t.scripted_metadata = Metadata()  # Picard only fills it when scripts ran
+        f1 = self.match(album, 1)
+        assert f1.metadata['totaldiscs'] == '1'
+        self.match(album, 2)
+        assert self.totals(album) == ['2']
+
     def test_total_set_by_plugin_still_follows_later_discs(self):
         album = self.make_album([2, 2, 2])
         f1 = self.match(album, 1)
@@ -209,10 +274,12 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_pre_save_fixes_total_reset_without_the_add_hook(self):
         from picard.file import run_file_pre_save_processors
 
+        uuid = self.plugin.manifest.uuid
+        self.set_config_values(setting={'plugins3_enabled_plugins': []})
         album = self.make_album([3, 3])
-        f1 = self.match(album, 1)
-        # Session restore, or enabling the plugin after files were matched, leaves MusicBrainz's value.
-        f1.metadata['totaldiscs'] = '2'
+        f1 = self.match(album, 1)  # matched before the plugin was enabled
+        assert f1.metadata['totaldiscs'] == '2'
+        self.set_config_values(setting={'plugins3_enabled_plugins': [uuid]})
         run_file_pre_save_processors(f1)
         assert f1.metadata['totaldiscs'] == '1'
 
