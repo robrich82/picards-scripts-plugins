@@ -1,14 +1,16 @@
 """Set Total Discs to the highest disc number that has matched files."""
 
-from weakref import WeakKeyDictionary
-
 from picard.album import NatAlbum
 from picard.plugin3.api import Track
 from picard.tags.preserved import UserPreservedTags  # what File.copy_metadata checks
 
-# file -> {tag: value the plugin last wrote}. Any value other than this or MusicBrainz's
-# was set by the user or the session, and is left alone.
-_written = WeakKeyDictionary()
+TAGS = ('totaldiscs',)
+
+
+def _marker(tag):
+    # The value the plugin last wrote to tag. Picard neither saves nor compares ~ variables,
+    # and drops them when it rebuilds the file's metadata on matching.
+    return f'~highest_disc_total_{tag}'
 
 
 def _int(value):
@@ -25,26 +27,32 @@ def _album(track):
     return None if isinstance(album, NatAlbum) else album
 
 
+def _baseline(track, tag):
+    """MusicBrainz's value, after tagger scripts. Not track.metadata: editing a track row in
+    the metadata box writes there too. scripted_metadata is only filled when scripts ran."""
+    return track.scripted_metadata[tag] or track.orig_metadata[tag]
+
+
 def highest_disc_with_files(album):
-    discs = [_int(t.metadata['discnumber']) for t in album.tracks if t.files]
+    discs = [_int(_baseline(t, 'discnumber')) for t in album.tracks if t.files]
     return max((d for d in discs if d), default=None)
 
 
-def _set_tag(file, tag, mb_value, target):
+def _set_tag(file, tag, baseline, target):
+    # The tag is the plugin's to change while it holds the value the plugin last wrote or,
+    # before that, the baseline. Anything else is a user edit, even the baseline typed back.
     current = file.metadata[tag]
-    if current == target or tag in UserPreservedTags():
+    if tag in UserPreservedTags() or current != (file.metadata[_marker(tag)] or baseline):
         return False
-    if current != mb_value and current != _written.get(file, {}).get(tag):
+    if current == target:
         return False
-    file.metadata[tag] = target
-    _written.setdefault(file, {})[tag] = target
+    file.metadata[tag] = file.metadata[_marker(tag)] = target
     return True
 
 
 def apply_to_file(track, file, highest):
-    # Cap at the track's own totaldiscs (MusicBrainz's value, after scripts) so the total
-    # can go back up when files for a later disc are matched.
-    mb_total = track.metadata['totaldiscs']
+    # Cap at the track's own total so it can go back up when files for a later disc are matched.
+    mb_total = _baseline(track, 'totaldiscs')
     if not _int(mb_total) or not highest:
         return False
     return _set_tag(file, 'totaldiscs', mb_total, str(min(_int(mb_total), highest)))
@@ -61,6 +69,9 @@ def apply_to_album(album):
 
 
 def on_file_added(api, track, file):
+    # Picard has just rebuilt the file's tags from the track, so any marker is stale.
+    for tag in TAGS:
+        file.metadata.unset(_marker(tag))
     apply_to_album(_album(track))
 
 
