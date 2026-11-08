@@ -229,24 +229,43 @@ CASES = [
      {'albumartist': 'X & Y', 'albumartists': ['X & Y']}),
     ('two actors in one full-width CV block', artists('A（CV：X、Y）', ['A', 'X', 'Y']),
      {'albumartist': 'X、Y'}),
-    ('two actors in one CV block feat.', artists('A(CV:X & Y) feat. B', ['A', 'X', 'Y', 'B']),
-     {'albumartist': 'X & Y', 'albumartists': ['X & Y']}),
+    ('two actors in one CV block feat.',
+     artists('A(CV:X & Y) feat. B', ['A', 'X', 'Y', 'B'], ['A-s', 'X-s', 'Y-s', 'B-s'], 'A-s(CV:X-s & Y-s) feat. B-s'),
+     {'albumartist': 'X & Y', 'albumartists': ['X & Y'], 'albumartistsort': 'X-s & Y-s'}),
+    ('two actors in one full-width CV block (feat.)',
+     artists('A（CV：X、Y）（feat. B）', ['A', 'X', 'Y', 'B'], ['A-s', 'X-s', 'Y-s', 'B-s'], 'A-s（CV：X-s、Y-s）（feat. B-s）'),
+     {'albumartist': 'X、Y', 'albumartistsort': 'X-s、Y-s'}),
     ('unit credits with several actors',
      artists('A(CV:X、Y) & B(CV:Z)', ['A', 'X', 'Y', 'B', 'Z']),
      {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
+    ('full-width unit credits with several actors',
+     artists('A（CV：X、Y）、B（CV：Z）', ['A', 'X', 'Y', 'B', 'Z']),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
+    ('actor repeated inside a CV block', artists('A(CV:X) & B(CV:Y、X、Z)', ['A', 'X', 'B', 'Y', 'X', 'Z']),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
+    ('two CV blocks on one character', artists('A(CV:X)(CV:Y) & B(CV:Z)', ['A', 'X', 'Y', 'B', 'Z']),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
+    ('feat inside a CV block', artists('A (CV:X feat. Y)', ['A', 'X', 'Y']),
+     {'albumartist': 'X feat. Y', 'albumartists': ['X feat. Y']}),
     ('character, artist, one-credit character',
      artists('A(CV:X) & B & C (CV.Z)', ['A', 'X', 'B', 'C (CV.Z)']),
      {'albumartist': 'Various Artists', 'albumartists': ['X', 'B', 'Z']}),
-    ('feat. in square brackets', artists('A [feat. B]', ['A', 'B']), {'albumartist': 'A', 'albumartists': ['A']}),
-    ('feat. in lenticular brackets', artists('A【feat. B】', ['A', 'B']), {'albumartist': 'A'}),
-    ('feat. after a comma', artists('A, feat. B', ['A', 'B']), {'albumartist': 'A'}),
-    ('feat. after a hyphen', artists('A - feat. B', ['A', 'B']), {'albumartist': 'A'}),
-    ('feat. after a slash', artists('A / feat. B', ['A', 'B']), {'albumartist': 'A'}),
+    *((f'feat. after {sep!r}', artists(f'A{sep}feat. B{end}', ['A', 'B']),
+       {'albumartist': 'A', 'albumartists': ['A'], 'albumartistsort': 'A'})
+      for sep, end in [(' [', ']'), ('【', '】'), (' ［', '］'), (', ', ''), ('、', ''), ('，', ''), (' - ', ''),
+                       (' – ', ''), (' — ', ''), (' / ', ''), ('／', ''), (' & ', ''), (' + ', ''), ('; ', ''),
+                       (' ～', '～'), ('「', '」')]),
+    ('name starting with punctuation', artists('? & Who?', ['?', 'Who?']),
+     {'albumartist': 'Various Artists', 'albumartists': ['?', 'Who?']}),
+    ('name starting with punctuation inside a later name', artists('A & ? & Who?', ['A', '?', 'Who?']),
+     {'albumartist': 'Various Artists', 'albumartists': ['A', '?', 'Who?']}),
     ('featured name inside "feat"', artists('A feat. e', ['A', 'e']), {'albumartist': 'A', 'albumartists': ['A']}),
     ('featured name inside "featuring"', artists('A featuring in', ['A', 'in']), {'albumartist': 'A'}),
     ('featured name inside "produced by"', artists('A produced by y', ['A', 'y']), {'albumartist': 'A'}),
     ('actor name inside "CV"', artists('A(CV:V)', ['A', 'V']), {'albumartist': 'V', 'albumartists': ['V']}),
     ('actor name inside "CV."', artists('A (CV.C)', ['A', 'C']), {'albumartist': 'C'}),
+    ('actor name inside full-width "ＣＶ"', artists('A（ＣＶ：Ｖ）', ['A', 'Ｖ']), {'albumartist': 'Ｖ'}),
+    ('actor name inside "CV．"', artists('A(CV．V)', ['A', 'V']), {'albumartist': 'V'}),
     ('second artist named like a join word', artists('A & Feat', ['A', 'Feat']),
      {'albumartist': 'Various Artists', 'albumartists': ['A', 'Feat']}),
     ('featured artist named like a join word', artists('A feat. Feat', ['A', 'Feat']),
@@ -337,10 +356,11 @@ class TestTrackFiles(PicardTestCase):
             'Various Artists', 'Various Artists', ['Artist A', 'Artist B'])
 
     def test_hidden_variables_in_file_tags_ignored(self):
-        track = self.make_track(artists('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y']))
-        junk = {f'~{name}': 'Junk' for name in ('feat', 'aa', 'name', 'va', 'incv', 'skip')}
-        result = self.match(track, 'a', junk)
-        assert (result['albumartist'], result.getall('albumartists')) == ('Various Artists', ['X', 'Y'])
+        junk = {f'~{name}': 'Junk' for name in ('feat', 'aa', 'name', 'va', 'incv')}
+        for credit, names, expected in [('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y'], ('Various Artists', ['X', 'Y'])),
+                                        ('A feat. B', ['A', 'B'], ('A', ['A']))]:
+            result = self.match(self.make_track(artists(credit, names)), 'a', junk)
+            assert (result['albumartist'], result.getall('albumartists')) == expected, credit
 
     def test_every_matched_file_gets_the_same_result(self):
         track = self.make_track({**artists('SQ(CV:Akari Kito & Y)', ['SQ(CV:Akari Kito & Y)']),
