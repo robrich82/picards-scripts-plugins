@@ -4,7 +4,8 @@ description = "Set Total Discs to the highest disc number that has matched files
 long_description = """
 When an album's last disc(s) have no matched files (e.g. the DVD of a CD+DVD release),
 lower Total Discs to the highest disc number you have files for. Never raises it above
-the MusicBrainz value, and restores it when files for the later discs are matched.
+the MusicBrainz value, restores it when files for the later discs are matched, and leaves
+alone a Total Discs you have edited.
 """
 api = ["3.0"]
 authors = ["Robert"]
