@@ -269,10 +269,19 @@ CASES = [
        {'albumartist': 'A', 'albumartists': ['A'], 'albumartistsort': 'A'})
       for sep, end in [(' [', ']'), ('【', '】'), (' ［', '］'), (', ', ''), ('、', ''), ('，', ''), (' - ', ''),
                        (' – ', ''), (' — ', ''), (' / ', ''), ('／', ''), (' & ', ''), (' + ', ''), ('; ', ''),
-                       (' ～', '～'), ('「', '」')]),
+                       (' ～', '～'), (' ~', '~'), ('「', '」'), ('『', '』'), (' 〈', '〉'), ('《', '》'),
+                       (' 〔', '〕'), (' ｛', '｝'), (' {', '}'), (' <', '>'), (': ', '')]),
     ('closing bracket before feat. kept', artists('A [JP] feat. B', ['A', 'B']),
      {'albumartist': 'A [JP]', 'albumartists': ['A [JP]']}),
     ('closing 』 before feat. kept', artists('A 『X』 feat. B', ['A', 'B']), {'albumartist': 'A 『X』'}),
+    *((f'closing {close!r} before feat. kept',
+       artists(f'A {open_}X{close} feat. B', ['A', 'B'], ['A-s', 'B-s'], f'A-s {open_}X{close} feat. B-s'),
+       {'albumartist': f'A {open_}X{close}', 'albumartistsort': f'A-s {open_}X{close}'})
+      for open_, close in ['""', '《》', '〈〉', '{}', '〔〕', '｢｣', '<>']),
+    *((f'{end!r} before feat. kept', artists(f'A{end} feat. B', ['A', 'B']), {'albumartist': f'A{end}'})
+      for end in ['!', ' Jr.', '?']),
+    ('empty main sort name with join text', artists('A [JP] feat. B', ['A', 'B'], ['', 'B-s']),
+     {'albumartist': 'A [JP]', 'albumartistsort': 'A [JP]'}),
     ('"ft" ending a word is no feat', artists('A soft B', ['A', 'B']), {'albumartist': 'Various Artists'}),
     ('"ft" starting a word is no feat', artists('A ftw B', ['A', 'B']), {'albumartist': 'Various Artists'}),
     ('featured name inside a capitalised "Feat"', artists('A Feat. e', ['A', 'e']), {'albumartist': 'A'}),
