@@ -215,6 +215,34 @@ CASES = [
     ('character feat. character', artists('A(CV:X) feat. B(CV:Y)', ['A', 'X', 'B', 'Y'],
                                           ['A', 'X-sort', 'B', 'Y-sort'], 'A(CV:X-sort) feat. B(CV:Y-sort)'),
      {'albumartist': 'X', 'albumartistsort': 'X-sort', 'albumartists': ['X']}),
+    ('two actors in one CV block', artists('A(CV:X & Y)', ['A', 'X', 'Y']),
+     {'albumartist': 'X & Y', 'albumartists': ['X & Y']}),
+    ('two actors in one full-width CV block', artists('A（CV：X、Y）', ['A', 'X', 'Y']),
+     {'albumartist': 'X、Y'}),
+    ('two actors in one CV block feat.', artists('A(CV:X & Y) feat. B', ['A', 'X', 'Y', 'B']),
+     {'albumartist': 'X & Y', 'albumartists': ['X & Y']}),
+    ('unit credits with several actors',
+     artists('A(CV:X、Y) & B(CV:Z)', ['A', 'X', 'Y', 'B', 'Z']),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'Y', 'Z']}),
+    ('character, artist, one-credit character',
+     artists('A(CV:X) & B & C (CV.Z)', ['A', 'X', 'B', 'C (CV.Z)']),
+     {'albumartist': 'Various Artists', 'albumartists': ['X', 'B', 'Z']}),
+    ('feat. in square brackets', artists('A [feat. B]', ['A', 'B']), {'albumartist': 'A', 'albumartists': ['A']}),
+    ('feat. in lenticular brackets', artists('A【feat. B】', ['A', 'B']), {'albumartist': 'A'}),
+    ('feat. after a comma', artists('A, feat. B', ['A', 'B']), {'albumartist': 'A'}),
+    ('feat. after a hyphen', artists('A - feat. B', ['A', 'B']), {'albumartist': 'A'}),
+    ('feat. after a slash', artists('A / feat. B', ['A', 'B']), {'albumartist': 'A'}),
+    ('featured name inside "feat"', artists('A feat. e', ['A', 'e']), {'albumartist': 'A', 'albumartists': ['A']}),
+    ('featured name inside "featuring"', artists('A featuring in', ['A', 'in']), {'albumartist': 'A'}),
+    ('featured name inside "produced by"', artists('A produced by y', ['A', 'y']), {'albumartist': 'A'}),
+    ('actor name inside "CV"', artists('A(CV:V)', ['A', 'V']), {'albumartist': 'V', 'albumartists': ['V']}),
+    ('actor name inside "CV."', artists('A (CV.C)', ['A', 'C']), {'albumartist': 'C'}),
+    ('second artist named like a join word', artists('A & Feat', ['A', 'Feat']),
+     {'albumartist': 'Various Artists', 'albumartists': ['A', 'Feat']}),
+    ('featured artist named like a join word', artists('A feat. Feat', ['A', 'Feat']),
+     {'albumartist': 'A', 'albumartists': ['A']}),
+    ('second artist starting with a join word', artists('A & Meets Band', ['A', 'Meets Band']),
+     {'albumartist': 'Various Artists', 'albumartists': ['A', 'Meets Band']}),
 ]
 
 
@@ -297,6 +325,12 @@ class TestTrackFiles(PicardTestCase):
         result = self.match(track, 'a', {'albumartists': ['Old'], 'albumartistsort': 'Old sort'})
         assert (result['albumartist'], result['albumartistsort'], result.getall('albumartists')) == (
             'Various Artists', 'Various Artists', ['Artist A', 'Artist B'])
+
+    def test_hidden_variables_in_file_tags_ignored(self):
+        track = self.make_track(artists('A(CV:X) & B(CV:Y)', ['A', 'X', 'B', 'Y']))
+        junk = {f'~{name}': 'Junk' for name in ('feat', 'aa', 'name', 'va', 'incv', 'skip')}
+        result = self.match(track, 'a', junk)
+        assert (result['albumartist'], result.getall('albumartists')) == ('Various Artists', ['X', 'Y'])
 
     def test_every_matched_file_gets_the_same_result(self):
         track = self.make_track({**artists('SQ(CV:Akari Kito & Y)', ['SQ(CV:Akari Kito & Y)']),

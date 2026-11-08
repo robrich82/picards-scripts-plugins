@@ -1,14 +1,18 @@
 title: Various Artists
 script_language_version: '1.1'
 script: |
+  $unset(_feat)$unset(_aa)$unset(_name)$unset(_va)$unset(_incv)
   $set(_cvx,\\s*[\(（][CＣ][VＶ][.:．：][^\(\)（）]*[\)）])
   $set(_cv,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
-  $set(_featre,\(?i\)\\s*[\(（]?\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_featre,\(?i\)[\\s\,、/–\(（\\[［【-]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_joinre,^\(\(?:[^\\w]|\(?i:feat|ft|featuring|meets|produced by\)\\b|[CＣ][VＶ]\(?=[.:．：]\)\)*\))
   $set(_rest,%albumartist%)
   $set(_main,0)
   $foreach(%_albumartists%,
     $if($and($rreplace(%_loop_value%,%_cvx%,),$in(%_rest%,%_loop_value%)),
-      $set(_pos,$find(%_rest%,%_loop_value%))
+      $set(_skip,$len($rsearch(%_rest%,%_joinre%)))
+      $set(_pos,$find($substr(%_rest%,%_skip%),%_loop_value%))
+      $if(%_pos%,$set(_pos,$add(%_pos%,%_skip%)),$set(_pos,$find(%_rest%,%_loop_value%)))
       $set(_sep,$substr(%_rest%,0,%_pos%))
       $set(_rest,$substr(%_rest%,$add(%_pos%,$len(%_loop_value%))))
       $if($and($not(%_feat%),$rsearch(%_sep%,%_featre%)),
@@ -18,10 +22,16 @@ script: |
       $if($not(%_feat%),
         $set(_aa,%_aa%%_sep%%_loop_value%)
         $if($rsearch(%_sep%,[\(（][CＣ][VＶ][.:．：]\\s*\$),
-          $set(_name,%_loop_value%),
-          $if($and(%_name%,$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
-          $set(_name,$rreplace(%_loop_value%,%_cv%,\\1))
-          $set(_main,$add(%_main%,1))
+          $set(_name,%_loop_value%)
+          $set(_incv,1),
+          $if($and(%_incv%,$not($rsearch(%_sep%,[\)）]))),
+            $if($not($inmulti(%_va%,%_name%,\n)),$set(_va,%_va%\n%_name%))
+            $set(_name,%_loop_value%),
+            $unset(_incv)
+            $if($and(%_name%,$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
+            $set(_name,$rreplace(%_loop_value%,%_cv%,\\1))
+            $set(_main,$add(%_main%,1))
+          )
         )
       )
     )
@@ -37,5 +47,5 @@ script: |
       $set(albumartistsort,$if2($getmulti(%_albumartists_sort%,0),%_aa%))
     )
   )
-  $unset(_cvx)$unset(_cv)$unset(_featre)$unset(_rest)$unset(_main)$unset(_pos)$unset(_sep)
-  $unset(_feat)$unset(_aa)$unset(_name)$unset(_va)
+  $unset(_cvx)$unset(_cv)$unset(_featre)$unset(_joinre)$unset(_rest)$unset(_main)$unset(_skip)$unset(_pos)$unset(_sep)
+  $unset(_feat)$unset(_aa)$unset(_name)$unset(_va)$unset(_incv)
