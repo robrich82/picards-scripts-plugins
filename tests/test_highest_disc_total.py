@@ -64,6 +64,9 @@ class HighestDiscTotalTest(PicardTestCase):
         file = File(f'C:/music/{album.id}-d{disc}t{n}.mp3')
         file.orig_metadata.update(file_tags or {})
         file.metadata.copy(file.orig_metadata)
+        return self.match_file(album, file, disc, n)
+
+    def match_file(self, album, file, disc, n=1):
         track = self.track(album, disc, n)
         file.parent_item = track
         track.add_file(file)
@@ -214,15 +217,40 @@ class HighestDiscTotalTest(PicardTestCase):
         run_file_pre_save_processors(f2)
         assert f2.metadata['totaldiscs'] == '5'
 
-    def test_musicbrainz_total_typed_back_kept(self):
+    def test_musicbrainz_total_typed_back_is_lowered_again(self):
         from picard.file import run_file_pre_save_processors
 
         album = self.make_album([3, 3])
         f1 = self.match(album, 1)
-        assert f1.metadata['totaldiscs'] == '1'
-        f1.metadata['totaldiscs'] = '2'
+        f1.metadata['totaldiscs'] = '2'  # indistinguishable from a reset; Preserved Tags pins it
         run_file_pre_save_processors(f1)
-        assert f1.metadata['totaldiscs'] == '2'
+        assert f1.metadata['totaldiscs'] == '1'
+
+    def test_deleted_total_stays_deleted(self):
+        from picard.file import run_file_pre_save_processors
+
+        album = self.make_album([3, 3])
+        f2 = self.match(album, 2)  # arrives with MusicBrainz's 2, the target: no marker yet
+        f2.metadata.delete('totaldiscs')
+        self.track(album, 2).remove_file(self.match(album, 2, 2))
+        run_file_pre_save_processors(f2)
+        assert f2.metadata['totaldiscs'] == ''
+
+    def test_marker_carried_in_from_a_save_does_not_freeze_the_file(self):
+        from picard.file import run_file_pre_save_processors
+
+        uuid = self.plugin.manifest.uuid
+        album = self.make_album([3, 3, 3])
+        f1 = self.match(album, 1)
+        assert f1.metadata['totaldiscs'] == '1'
+        self.track(album, 1).remove_file(f1)
+        f1.orig_metadata['~highest_disc_total_totaldiscs'] = '1'  # saving copies ~ variables
+        self.set_config_values(setting={'plugins3_enabled_plugins': []})
+        self.match_file(album, f1, 1)  # re-matched while the plugin is off: MusicBrainz's 3
+        self.set_config_values(setting={'plugins3_enabled_plugins': [uuid]})
+        f1.metadata['~highest_disc_total_totaldiscs'] = '2'  # stale, from some earlier state
+        run_file_pre_save_processors(f1)
+        assert f1.metadata['totaldiscs'] == '1'
 
     def test_edit_after_file_moved_kept(self):
         from picard.file import run_file_pre_save_processors
@@ -239,7 +267,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_file_added_again_to_its_track(self):
         album = self.make_album([3, 3])
         f1 = self.match(album, 1)
-        self.track(album, 1).add_file(f1)  # resets the file's tags to the track's, but not ~ variables
+        self.track(album, 1).add_file(f1)  # resets the file's tags to the track's, keeping ~ variables
         assert f1.metadata['totaldiscs'] == '1'
 
     def test_plugin_reload_still_follows_its_own_values(self):

@@ -4,12 +4,11 @@ from picard.album import NatAlbum
 from picard.plugin3.api import Track
 from picard.tags.preserved import UserPreservedTags  # what File.copy_metadata checks
 
-TAGS = ('totaldiscs',)
-
 
 def _marker(tag):
-    # The value the plugin last wrote to tag. Picard neither saves nor compares ~ variables,
-    # and drops them when it rebuilds the file's metadata on matching.
+    # The value the plugin last wrote to tag. Picard neither writes ~ variables to tags nor
+    # compares them, but does carry them through re-matching and saving; a stale one is
+    # harmless because the baseline still counts as the plugin's.
     return f'~highest_disc_total_{tag}'
 
 
@@ -39,10 +38,10 @@ def highest_disc_with_files(album):
 
 
 def _set_tag(file, tag, baseline, target):
-    # The tag is the plugin's to change while it holds the value the plugin last wrote or,
-    # before that, the baseline. Anything else is a user edit, even the baseline typed back.
+    # The tag is the plugin's to change while it holds the baseline or the value the plugin
+    # last wrote; anything else is a user edit. Preserved Tags pins even the baseline.
     current = file.metadata[tag]
-    if tag in UserPreservedTags() or current != (file.metadata[_marker(tag)] or baseline):
+    if tag in UserPreservedTags() or current not in {baseline, file.metadata[_marker(tag)]} - {''}:
         return False
     if current == target:
         return False
@@ -69,9 +68,6 @@ def apply_to_album(album):
 
 
 def on_file_added(api, track, file):
-    # Picard has just rebuilt the file's tags from the track, so any marker is stale.
-    for tag in TAGS:
-        file.metadata.unset(_marker(tag))
     apply_to_album(_album(track))
 
 
