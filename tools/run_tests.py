@@ -61,6 +61,14 @@ def ensure_picard_source(picard_dir=PICARD_DIR):
     stamp.write_text(PICARD_REF + '\n')
 
 
+def interpreter_works(python):
+    """False when the venv's python.exe is missing or its base interpreter was uninstalled."""
+    try:
+        return subprocess.run([str(python), '-c', ''], capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
 def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
     # Picard's own hashed pins: requirements.txt for Picard, requirements-build.txt constrains pytest and its deps.
     requirements, constraints = picard_src / 'requirements.txt', picard_src / 'requirements-build.txt'
@@ -68,7 +76,7 @@ def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
     wanted = f'{PYTHON} {PICARD_REF} {digests}'
     stamp = venv / '.picard-deps'
     python = venv_python(venv)
-    if python.exists() and stamp.is_file() and stamp.read_text().strip() == wanted:
+    if stamp.is_file() and stamp.read_text().strip() == wanted and interpreter_works(python):
         return
     stamp.unlink(missing_ok=True)
     if venv.exists():

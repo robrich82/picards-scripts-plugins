@@ -36,6 +36,7 @@ def commands(monkeypatch):
             Path(cmd[-1]).mkdir(parents=True)
 
     monkeypatch.setattr(run_tests, 'run', fake_run)
+    monkeypatch.setattr(run_tests, 'interpreter_works', lambda python: python.is_file() and not python.read_text())
     return seen
 
 
@@ -76,7 +77,8 @@ def test_install_uses_picard_pins_and_cooldown(tmp_path, picard_src, commands):
     ]
 
 
-@pytest.mark.parametrize('change', ['python', 'picard ref', 'requirements', 'constraints', 'interpreter gone'])
+@pytest.mark.parametrize('change', ['python', 'picard ref', 'requirements', 'constraints', 'interpreter gone',
+                                    'base interpreter gone', 'stamp gone'])
 def test_venv_rebuilt_when_anything_changes(tmp_path, picard_src, commands, monkeypatch, change):
     venv = tmp_path / 'venv'
     run_tests.ensure_venv(venv, picard_src)
@@ -88,6 +90,10 @@ def test_venv_rebuilt_when_anything_changes(tmp_path, picard_src, commands, monk
         monkeypatch.setattr(run_tests, 'PICARD_REF', 'release-9')
     elif change == 'interpreter gone':
         run_tests.venv_python(venv).unlink()
+    elif change == 'base interpreter gone':
+        run_tests.venv_python(venv).write_text('No Python at ...')
+    elif change == 'stamp gone':
+        (venv / '.picard-deps').unlink()
     else:
         (picard_src / f'requirements{"-build" if change == "constraints" else ""}.txt').write_text('changed\n')
 
@@ -116,6 +122,32 @@ def test_failed_venv_removal_leaves_no_stamp(tmp_path, picard_src, commands, mon
     with pytest.raises(PermissionError):
         run_tests.ensure_venv(venv, picard_src)
     assert not (venv / '.picard-deps').exists()
+
+
+def test_failed_install_leaves_no_stamp(tmp_path, picard_src, commands, monkeypatch):
+    recorder = run_tests.run
+
+    def failing_install(*cmd):
+        recorder(*cmd)
+        if cmd[:2] == ('uv', 'pip'):
+            raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(run_tests, 'run', failing_install)
+    with pytest.raises(subprocess.CalledProcessError):
+        run_tests.ensure_venv(tmp_path / 'venv', picard_src)
+    assert not (tmp_path / 'venv' / '.picard-deps').exists()
+
+
+def test_interpreter_works(tmp_path):
+    assert run_tests.interpreter_works(Path(sys.executable))
+    assert not run_tests.interpreter_works(tmp_path / 'missing.exe')
+    (tmp_path / 'broken.exe').write_text('')
+    assert not run_tests.interpreter_works(tmp_path / 'broken.exe')
+
+
+def test_failed_command_raises():
+    with pytest.raises(subprocess.CalledProcessError):
+        run_tests.run(sys.executable, '-c', 'raise SystemExit(3)')
 
 
 def test_picard_cloned_then_reused(tmp_path, commands):
@@ -160,7 +192,7 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
     monkeypatch.setattr(run_tests, 'ensure_picard_source', lambda: None)
     monkeypatch.setattr(run_tests, 'ensure_venv', lambda: None)
     monkeypatch.setattr(run_tests.subprocess, 'run', fake_subprocess_run)
-    monkeypatch.setattr(sys, 'argv', ['run_tests.py', '-k', 'voice'])
+    monkeypatch.setattr(sys, 'argv', ['run_tests.py', '-k', 'CV'])
     assert run_tests.main() == 3
-    assert seen == {'cmd': [str(run_tests.venv_python(run_tests.VENV)), '-m', 'pytest', '-k', 'voice'],
+    assert seen == {'cmd': [str(run_tests.venv_python(run_tests.VENV)), '-m', 'pytest', '-k', 'CV'],
                     'cwd': run_tests.ROOT, 'picard_src': str(run_tests.PICARD_SRC)}
