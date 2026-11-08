@@ -26,7 +26,9 @@ Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn
 
 ### Installing a plugin
 
-Picard runs a local plugin from the folder you give it, without copying it, so first copy `plugins/highest-disc-total` somewhere it can stay (e.g. `%APPDATA%\MusicBrainz\local-plugins\`).
+With Picard closed, run `make install-plugin` (`mise install` provides `make`). It copies the plugin to `local-plugins` in Picard's data folder (`%APPDATA%\MusicBrainz` on Windows) and registers it with `picard-cli`; run it again to update. `PICARD_CLI` sets the path to `picard-cli` when it isn't on `PATH` or in the default Windows install folder.
+
+By hand: Picard runs a local plugin from the folder you give it, without copying it, so first copy `plugins/highest-disc-total` somewhere it can stay (e.g. `%APPDATA%\MusicBrainz\local-plugins\`).
 
 Options → Options… → Plugins → **Install Plugin…**, then the **Local** tab, and pick that folder. Answer **Yes** to the "not managed by git" warning.
 
