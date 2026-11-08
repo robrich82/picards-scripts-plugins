@@ -5,7 +5,7 @@ long_description = """
 When an album's last disc(s) have no matched files (e.g. the DVD of a CD+DVD release),
 lower Total Discs to the highest disc number you have files for. Never raises it above
 the MusicBrainz value, restores it when files for the later discs are matched, and leaves
-alone a Total Discs you have edited.
+alone a Total Discs you edit; add it to Preserved Tags to keep MusicBrainz's own value.
 """
 api = ["3.0"]
 authors = ["Robert"]
