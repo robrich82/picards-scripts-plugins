@@ -8,25 +8,25 @@ My tagger scripts for [MusicBrainz Picard](https://picard.musicbrainz.org/) 3, t
 | --- | --- |
 | [`01-remove-hyphens-in-title.ptsp`](tagger-scripts/01-remove-hyphens-in-title.ptsp) | Replaces ` - ` in titles with an en dash: `Song - Live` → `Song – Live`. |
 | [`02-set-subtitle.ptsp`](tagger-scripts/02-set-subtitle.ptsp) | Title-cases the disc subtitle. |
-| [`03-use-original-date.ptsp`](tagger-scripts/03-use-original-date.ptsp) | Pads `originaldate` and `date` to `YYYY-MM-DD` with `01` for a missing month/day, then sets `date` to the original release date when there is one, unless `date` is a more precise date within it (`1995` and `1995-03-02` keep `1995-03-02`), and `originalyear` to the year of the final `date`. |
-| [`04-various-artists.ptsp`](tagger-scripts/04-various-artists.ptsp) | Strips featured artists (`feat.`, `featuring`, `ft`, `meets`, `produced by` between two credited names, also bracketed as `(feat. …)` or `[feat. …]`) from the album artist, keeping the main artist's MusicBrainz sort name; when it strips one, `albumartists` becomes that one artist. Two or more main artists become `Various Artists`, and `albumartists` keeps their names, with voice actors in place of characters. The actors inside a `(CV…)` credit aren't counted, but two characters still make `Various Artists`. |
+| [`03-use-original-date.ptsp`](tagger-scripts/03-use-original-date.ptsp) | Pads `originaldate` and `date` to `YYYY-MM-DD` (`01` for a missing month or day). `date` becomes the original release date, unless it is already a more precise date within it: original `1995` with date `1995-03-02` keeps `1995-03-02`. `originalyear` is the year of the final `date`. |
+| [`04-various-artists.ptsp`](tagger-scripts/04-various-artists.ptsp) | Strips featured artists (`feat.`, `featuring`, `ft`, `meets`, `produced by`, also in brackets) from the album artist and `albumartists`, keeping the main artist's sort name. Two or more main artists become `Various Artists`, with `albumartists` listing them and voice actors in place of characters; the actors inside a `(CV…)` credit don't count as main artists. |
 | [`05-voice-actor.ptsp`](tagger-scripts/05-voice-actor.ptsp) | Turns a character credit into the voice actor, in `albumartist` and `albumartists`: `Chin-lan Chang(CV.Maki Kawase)` → `Maki Kawase`, sorted as `Kawase, Maki`. Accepts `CV.`, `CV:` and full-width `（ＣＶ：…）`. |
 
-**Order matters.** Picard runs scripts top to bottom, and Various Artists must run before Voice Actor, which only cleans an `albumartist` that is down to a single credit. Keep them in file-number order.
+**Order matters.** Picard runs scripts top to bottom, and Various Artists must run before Voice Actor. Keep them in file-number order.
 
 ### Installing a script
 
-Options → Scripting → **Import**, then pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
+Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn't already, then **Import** and pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
 
 ## Tests
 
-The tests run every script, in file order, through Picard's real script parser on sample tracks. They need `git` and [`uv`](https://docs.astral.sh/uv/):
+The tests run every script, in file order, through Picard's real script parser on sample tracks. They need `git` and [`uv`](https://docs.astral.sh/uv/) 0.9.17 or later:
 
 ```sh
 python tools/run_tests.py
 ```
 
-The first run downloads Picard's source (`release-3.0.4`) into `.picard/` and builds a Python 3.12 environment in `.venv/`; both are git-ignored. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k voice`.
+The first run downloads Picard's source (`release-3.0.4`) into `.picard/` and builds a Python 3.12 environment in `.venv/`; both are git-ignored. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
 
 To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py`](tools/run_tests.py).
 
