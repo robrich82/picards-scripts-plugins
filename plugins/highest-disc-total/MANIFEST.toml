@@ -1,0 +1,11 @@
+uuid = "c902f1fc-0f48-4540-beb1-51cf07da0b45"
+name = "Highest Disc Total"
+description = "Set Total Discs to the highest disc number that has matched files"
+long_description = """
+When an album's last disc(s) have no matched files (e.g. the DVD of a CD+DVD release),
+lower Total Discs to the highest disc number you have files for. Never raises it above
+the MusicBrainz value, and restores it when files for the later discs are matched.
+"""
+api = ["3.0"]
+authors = ["Robert"]
+license = "GPL-3.0-or-later"

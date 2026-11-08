@@ -1,0 +1,49 @@
+title: Various Artists
+script_language_version: '1.1'
+script: |
+  $unset(_feat)$unset(_aa)$unset(_aas)$unset(_name)$unset(_va)$unset(_incv)
+  $set(_cvx,\\s*[\(（][CＣ][VＶ][.:．：][^\(\)（）]*[\)）])
+  $set(_cv,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
+  $set(_featre,\(?i\)[\\s\(\\[（［【「『〈《〔｛{<\,，、/／&＆+＋;；~～\\-–—:：×・|]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_joinre,^\(\(?:[^\\w]|\(?i:feat|ft|featuring|meets|produced by\)\\b|[CＣ][VＶ]\(?=[.:．：]\)\)*\))
+  $set(_rest,%albumartist%)
+  $set(_main,0)
+  $foreach(%_albumartists%,
+    $if($and($not(%_feat%),$rreplace(%_loop_value%,%_cvx%,),$in(%_rest%,%_loop_value%)),
+      $set(_skip,$if($rsearch(%_loop_value%,^\\w),$len($rsearch(%_rest%,%_joinre%)),0))
+      $set(_pos,$find($substr(%_rest%,%_skip%),%_loop_value%))
+      $set(_pos,$if(%_pos%,$add(%_pos%,%_skip%),$find(%_rest%,%_loop_value%)))
+      $set(_sep,$substr(%_rest%,0,%_pos%))
+      $set(_rest,$substr(%_rest%,$add(%_pos%,$len(%_loop_value%))))
+      $set(_open,$rsearch(%_sep%,[\(（][CＣ][VＶ][.:．：]\\s*\$))
+      $set(_inblock,$and(%_incv%,$not($rsearch(%_sep%,[\)）]))))
+      $if($and($not(%_inblock%),$rsearch(%_sep%,%_featre%)),
+        $set(_feat,1)
+        $set(_aa,%_aa%$rreplace(%_sep%,%_featre%,))
+        $set(_aas,%_aas%$rreplace(%_sep%,%_featre%,)),
+        $set(_aa,%_aa%%_sep%%_loop_value%)
+        $set(_aas,%_aas%%_sep%$if2($getmulti(%_albumartists_sort%,$sub(%_loop_count%,1)),%_loop_value%))
+        $if($and(%_name%,$or($not(%_open%),%_incv%),$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
+        $if($or(%_open%,%_inblock%),
+          $set(_name,%_loop_value%)
+          $set(_incv,1),
+          $unset(_incv)
+          $set(_name,$rreplace(%_loop_value%,%_cv%,\\1))
+          $set(_main,$add(%_main%,1))
+        )
+      )
+    )
+  )
+  $if($and(%_name%,$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
+  $if($gt(%_main%,1),
+    $setmulti(albumartists,$substr(%_va%,1),\n)
+    $set(albumartist,Various Artists)
+    $set(albumartistsort,Various Artists),
+    $if($and($eq(%_main%,1),%_feat%),
+      $set(albumartist,%_aa%)
+      $set(albumartists,%_aa%)
+      $set(albumartistsort,%_aas%)
+    )
+  )
+  $unset(_cvx)$unset(_cv)$unset(_featre)$unset(_joinre)$unset(_rest)$unset(_main)$unset(_skip)$unset(_pos)$unset(_sep)
+  $unset(_open)$unset(_inblock)$unset(_feat)$unset(_aa)$unset(_aas)$unset(_name)$unset(_va)$unset(_incv)
