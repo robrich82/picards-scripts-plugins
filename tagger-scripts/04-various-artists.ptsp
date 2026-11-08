@@ -4,7 +4,7 @@ script: |
   $unset(_feat)$unset(_aa)$unset(_aas)$unset(_name)$unset(_va)$unset(_incv)
   $set(_cvx,\\s*[\(（][CＣ][VＶ][.:．：][^\(\)（）]*[\)）])
   $set(_cv,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
-  $set(_featre,\(?i\)[\\s\(\\[（［【「『〈《〔｛{<\,，、/／&+;~～\\-–—:]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_featre,\(?i\)[\\s\(\\[（［【「『〈《〔｛{<\,，、/／&＆+＋;；~～\\-–—:：×・|]*\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
   $set(_joinre,^\(\(?:[^\\w]|\(?i:feat|ft|featuring|meets|produced by\)\\b|[CＣ][VＶ]\(?=[.:．：]\)\)*\))
   $set(_rest,%albumartist%)
   $set(_main,0)
