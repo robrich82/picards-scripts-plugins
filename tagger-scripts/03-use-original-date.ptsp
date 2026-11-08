@@ -1,13 +1,14 @@
 title: Use Original Date
 script_language_version: '1.1'
 script: |
-  $set(_d,$get_new(originaldate))
-  $if($eq($len(%_d%),4),$set(_d,%_d%-01-01))
-  $if($eq($len(%_d%),7),$set(_d,%_d%-01))
-  $set(originaldate,%_d%)
+  $set(_o,$get_new(originaldate))
   $set(_d,$get_new(date))
+  $set(_keep,$startswith(%_d%,%_o%))
+  $if($eq($len(%_o%),4),$set(_o,%_o%-01-01))
+  $if($eq($len(%_o%),7),$set(_o,%_o%-01))
+  $set(originaldate,%_o%)
   $if($eq($len(%_d%),4),$set(_d,%_d%-01-01))
   $if($eq($len(%_d%),7),$set(_d,%_d%-01))
-  $set(date,$if2(%originaldate%,%_d%))
+  $set(date,$if(%_keep%,%_d%,%_o%))
   $set(originalyear,$left(%date%,4))
-  $unset(_d)
+  $unset(_o)$unset(_d)$unset(_keep)
