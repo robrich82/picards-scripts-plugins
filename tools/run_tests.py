@@ -65,13 +65,14 @@ def interpreter_works(python):
     """False, with the reason printed, when the venv's python is missing or won't start (e.g. its base
     interpreter was uninstalled). -I keeps PYTHON* variables from failing the check on every run."""
     try:
-        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True, text=True)
+        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True)
     except OSError as error:
         reason = error
     else:
         if result.returncode == 0:
             return True
-        reason = f'exit {result.returncode}: {result.stderr.strip()}'
+        # Bytes: the launcher writes in the ANSI code page; backslashreplace stays printable on any console.
+        reason = f'exit {result.returncode}: {result.stderr.decode(errors="backslashreplace").strip()}'
     print(f'{python} does not start ({reason}); rebuilding the venv', flush=True)
     return False
 

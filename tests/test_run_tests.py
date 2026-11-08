@@ -147,17 +147,18 @@ def test_interpreter_works(tmp_path):
 
 
 def test_interpreter_failing_to_start_reports_why(monkeypatch, capsys):
-    """A venv launcher whose base interpreter is gone starts, then exits 103."""
+    """A venv launcher whose base interpreter is gone starts, then exits 103. It prints the path in the
+    ANSI code page, which need not decode as UTF-8."""
     seen = []
 
-    def no_base_python(cmd, capture_output, text):
+    def no_base_python(cmd, capture_output):
         seen.append(cmd)
-        return subprocess.CompletedProcess(cmd, 103, '', "No Python at 'C:\\uv\\cpython-3.12.11\\python.exe'\n")
+        return subprocess.CompletedProcess(cmd, 103, b'', b"No Python at 'C:\\Users\\Ren\xe9\\python.exe'\r\n")
 
     monkeypatch.setattr(run_tests.subprocess, 'run', no_base_python)
     assert not run_tests.interpreter_works(Path('venv/python'))
     assert seen == [[str(Path('venv/python')), '-I', '-c', '']]
-    assert 'No Python at' in capsys.readouterr().out
+    assert "(exit 103: No Python at 'C:\\Users\\Ren\\xe9\\python.exe'); rebuilding" in capsys.readouterr().out
 
 
 def test_failed_command_raises():
