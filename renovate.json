@@ -16,8 +16,8 @@
       "managerFilePatterns": ["/^tools/run_tests\\.py$/", "/^README\\.md$/"],
       "matchStrings": [
         "PICARD_REF = 'release-(?<currentValue>[^']+)'",
-        "tested against Picard (?<currentValue>\\d+\\.\\d+\\.\\d+)",
-        "`release-(?<currentValue>\\d+\\.\\d+\\.\\d+)`"
+        "tested against Picard (?<currentValue>\\d+(?:\\.\\d+)+)",
+        "`release-(?<currentValue>\\d+(?:\\.\\d+)+)`"
       ],
       "depNameTemplate": "metabrainz/picard",
       "datasourceTemplate": "github-tags",
