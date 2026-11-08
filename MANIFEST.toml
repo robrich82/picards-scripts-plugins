@@ -1,11 +1,12 @@
 uuid = "c902f1fc-0f48-4540-beb1-51cf07da0b45"
 name = "Highest Disc Total"
-description = "Set Total Discs to the highest disc number that has matched files"
+description = "Renumber discs and set Total Discs so discs without matched files leave no gap"
 long_description = """
-When an album's last disc(s) have no matched files (e.g. the DVD of a CD+DVD release),
-lower Total Discs to the highest disc number you have files for. Never raises it above
-the MusicBrainz value, restores it when files for the later discs are matched, and leaves
-alone a Total Discs you edit; add it to Preserved Tags to keep MusicBrainz's own value.
+Sets Total Discs to the number of discs with matched files and renumbers later discs to close
+the gaps: discs 1 and 3 of 4 become 1/2 and 2/2. Restores the numbering when a missing disc is
+matched, and leaves alone a value you edit; add the tag to Preserved Tags to keep MusicBrainz's
+own value. On a release whose discs share recordings, saved renumbered files can re-match to the
+earlier disc when reloaded.
 """
 api = ["3.0"]
 authors = ["Robert"]
