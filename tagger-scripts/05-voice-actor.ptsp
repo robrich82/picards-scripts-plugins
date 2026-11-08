@@ -1,22 +1,20 @@
 title: Voice Actor
 script_language_version: '1.1'
 script: |
-  $set(_cvre,^[^\(\)（）]+?\\s*[\(（]CV[.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
-  $set(_clean,$rreplace(%albumartist%,%_cvre%,\\1))
-  $if($ne(%_clean%,%albumartist%),
-    $set(albumartist,%_clean%)
-    $set(albumartists,%_clean%)
-    $foreach(%_albumartists%,
-      $if($eq(%_loop_value%,%albumartist%),
-        $set(albumartistsort,$getmulti(%_albumartists_sort%,$sub(%_loop_count%,1)))
+  $set(_cvre,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
+  $if($get_new(albumartist),
+    $set(_clean,$rreplace(%albumartist%,%_cvre%,\\1))
+    $if($ne(%_clean%,%albumartist%),
+      $set(albumartist,%_clean%)
+      $set(albumartists,%_clean%)
+      $foreach(%_albumartists%,
+        $if($eq(%_loop_value%,%albumartist%),
+          $set(albumartistsort,$getmulti(%_albumartists_sort%,$sub(%_loop_count%,1)))
+        )
       )
+      $set(albumartistsort,$rreplace(%albumartistsort%,%_cvre%,\\1))
     )
-    $set(albumartistsort,$rreplace(%albumartistsort%,%_cvre%,\\1))
+    $set(_list,$map(%_albumartists%,$rreplace(%_loop_value%,%_cvre%,\\1)))
+    $if($ne(%_list%,%_albumartists%),$setmulti(_albumartists,%_list%))
   )
-  $set(_list,)
-  $foreach(%albumartists%,$set(_list,%_list%; $rreplace(%_loop_value%,%_cvre%,\\1)))
-  $if(%_list%,$setmulti(albumartists,$substr(%_list%,2)))
-  $set(_list,)
-  $foreach(%_albumartists%,$set(_list,%_list%; $rreplace(%_loop_value%,%_cvre%,\\1)))
-  $if(%_list%,$setmulti(_albumartists,$substr(%_list%,2)))
   $unset(_cvre)$unset(_clean)$unset(_list)

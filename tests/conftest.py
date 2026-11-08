@@ -13,7 +13,7 @@ import pytest
 PICARD_SRC = Path(os.environ.get('PICARD_SRC', Path(__file__).resolve().parent.parent / '.picard' / 'src'))
 if not (PICARD_SRC / 'picard').is_dir():
     pytest.exit(f'Picard source not found at {PICARD_SRC}; run: python tools/run_tests.py', returncode=2)
-# picard-src/test is added so picardtestcase imports as a plain module, without pulling in
+# PICARD_SRC/test is added so picardtestcase imports as a plain module, without pulling in
 # Picard's test package (its __init__ imports every Picard test module).
 sys.path[:0] = [str(PICARD_SRC), str(PICARD_SRC / 'test')]
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')

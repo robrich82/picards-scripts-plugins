@@ -1,7 +1,7 @@
 """Fetch Picard's source, build a test venv with uv, and run pytest against it.
 
 Usage: python tools/run_tests.py [pytest args...]
-Needs git and uv on PATH. Everything it creates lives in git-ignored .picard/ and .venv/.
+Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/ and .venv/.
 """
 import hashlib
 import os
@@ -14,7 +14,6 @@ import sys
 PICARD_REF = 'release-3.0.4'
 PICARD_REPO = 'https://github.com/metabrainz/picard.git'
 PYTHON = '3.12'
-PYTEST = 'pytest==9.1.1'  # Picard's own dev pin
 
 ROOT = Path(__file__).resolve().parent.parent
 PICARD_DIR = ROOT / '.picard'
@@ -27,15 +26,18 @@ def venv_python(venv):
 
 
 def run(*cmd):
-    print('+', ' '.join(str(c) for c in cmd), flush=True)
-    try:
-        subprocess.run([str(c) for c in cmd], check=True)
-    except FileNotFoundError:
+    exe = shutil.which(cmd[0])  # honours PATHEXT, so .cmd/.bat shims work on Windows
+    if exe is None:
         sys.exit(f'{cmd[0]} not found on PATH')
+    print('+', *cmd, flush=True)
+    subprocess.run([exe, *(str(c) for c in cmd[1:])], check=True)
 
 
-def _clear_readonly(func, path, _exc):
-    os.chmod(path, stat.S_IWRITE)
+def _clear_readonly(func, path, exc):
+    exc = exc[1] if isinstance(exc, tuple) else exc  # onerror passes exc_info
+    if func not in (os.unlink, os.rmdir) or not isinstance(exc, PermissionError):
+        raise exc
+    os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
     func(path)
 
 
@@ -60,17 +62,20 @@ def ensure_picard_source(picard_dir=PICARD_DIR):
 
 
 def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
-    requirements = picard_src / 'requirements.txt'
-    wanted = f'{PYTHON} {PICARD_REF} {PYTEST} {hashlib.sha256(requirements.read_bytes()).hexdigest()}'
+    # Picard's own hashed pins: requirements.txt for Picard, requirements-build.txt constrains pytest and its deps.
+    requirements, constraints = picard_src / 'requirements.txt', picard_src / 'requirements-build.txt'
+    digests = ' '.join(hashlib.sha256(p.read_bytes()).hexdigest() for p in (requirements, constraints))
+    wanted = f'{PYTHON} {PICARD_REF} {digests}'
     stamp = venv / '.picard-deps'
     python = venv_python(venv)
     if python.exists() and stamp.is_file() and stamp.read_text().strip() == wanted:
         return
+    stamp.unlink(missing_ok=True)
     if venv.exists():
         rmtree(venv)
     run('uv', 'venv', '--quiet', '--python', PYTHON, venv)
     run('uv', 'pip', 'install', '--quiet', '--exclude-newer', '24 hours', '--python', python,
-        '-r', requirements, PYTEST)
+        '-r', requirements, '-c', constraints, 'pytest')
     stamp.write_text(wanted + '\n')
 
 

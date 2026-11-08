@@ -1,34 +1,41 @@
 title: Various Artists
 script_language_version: '1.1'
 script: |
-  $set(_feat,\\s+\(?i:\(?:feat|ft\)\\.\\s*|\(?:feat|ft|featuring|meets|produced by\)\\s\).*)
-  $set(_aa,$rreplace(%albumartist%,%_feat%,))
-  $set(_cvx,\\s*[\(（]CV[.:．：][^\(\)（）]*[\)）])
-  $set(_rest,$rreplace(%_aa%,%_cvx%,))
+  $set(_cvx,\\s*[\(（][CＣ][VＶ][.:．：][^\(\)（）]*[\)）])
+  $set(_cv,^[^\(\)（）]+?\\s*[\(（][CＣ][VＶ][.:．：]\\s*\([^\\s\(\)（）][^\(\)（）]*?\)\\s*[\)）]\$)
+  $set(_featre,\(?i\)\\s*[\(（]?\\b\(?:feat|ft|featuring|meets|produced by\)\\b.*)
+  $set(_rest,%albumartist%)
   $set(_main,0)
   $foreach(%_albumartists%,
-    $set(_name,$rreplace(%_loop_value%,%_cvx%,))
-    $if($and(%_name%,$in(%_rest%,%_name%)),
-      $set(_main,$add(%_main%,1))
-      $set(_rest,$substr(%_rest%,$add($find(%_rest%,%_name%),$len(%_name%))))
-    )
-  )
-  $if($gt(%_main%,1),
-    $set(_rest,%_aa%)
-    $set(_va,)
-    $foreach(%_albumartists%,
-      $if($in(%_rest%,%_loop_value%),
-        $set(_rest,$substr(%_rest%,$add($find(%_rest%,%_loop_value%),$len(%_loop_value%))))
-        $if($not($rsearch(%_rest%,^\\s*[\(（]CV[.:．：])),$set(_va,%_va%; %_loop_value%))
+    $if($and($rreplace(%_loop_value%,%_cvx%,),$in(%_rest%,%_loop_value%)),
+      $set(_pos,$find(%_rest%,%_loop_value%))
+      $set(_sep,$substr(%_rest%,0,%_pos%))
+      $set(_rest,$substr(%_rest%,$add(%_pos%,$len(%_loop_value%))))
+      $if($and($not(%_feat%),$rsearch(%_sep%,%_featre%)),
+        $set(_feat,1)
+        $set(_aa,%_aa%$rreplace(%_sep%,%_featre%,))
+      )
+      $if($not(%_feat%),
+        $set(_aa,%_aa%%_sep%%_loop_value%)
+        $if($rsearch(%_sep%,[\(（][CＣ][VＶ][.:．：]\\s*\$),
+          $set(_name,%_loop_value%),
+          $if($and(%_name%,$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
+          $set(_name,$rreplace(%_loop_value%,%_cv%,\\1))
+          $set(_main,$add(%_main%,1))
+        )
       )
     )
-    $if(%_va%,$setmulti(albumartists,$substr(%_va%,2)))
+  )
+  $if($and(%_name%,$not($inmulti(%_va%,%_name%,\n))),$set(_va,%_va%\n%_name%))
+  $if($gt(%_main%,1),
+    $setmulti(albumartists,$substr(%_va%,1),\n)
     $set(albumartist,Various Artists)
     $set(albumartistsort,Various Artists),
-    $if($and($eq(%_main%,1),$ne(%_aa%,%albumartist%)),
+    $if($and($eq(%_main%,1),%_feat%),
       $set(albumartist,%_aa%)
       $set(albumartists,%_aa%)
-      $set(albumartistsort,$getmulti(%_albumartists_sort%,0))
+      $set(albumartistsort,$if2($getmulti(%_albumartists_sort%,0),%_aa%))
     )
   )
-  $unset(_feat)$unset(_aa)$unset(_cvx)$unset(_rest)$unset(_main)$unset(_name)$unset(_va)
+  $unset(_cvx)$unset(_cv)$unset(_featre)$unset(_rest)$unset(_main)$unset(_pos)$unset(_sep)
+  $unset(_feat)$unset(_aa)$unset(_name)$unset(_va)
