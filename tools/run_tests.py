@@ -62,11 +62,18 @@ def ensure_picard_source(picard_dir=PICARD_DIR):
 
 
 def interpreter_works(python):
-    """False when the venv's python.exe is missing or its base interpreter was uninstalled."""
+    """False, with the reason printed, when the venv's python is missing or won't start (e.g. its base
+    interpreter was uninstalled). -I keeps PYTHON* variables from failing the check on every run."""
     try:
-        return subprocess.run([str(python), '-c', ''], capture_output=True).returncode == 0
-    except OSError:
-        return False
+        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True, text=True)
+    except OSError as error:
+        reason = error
+    else:
+        if result.returncode == 0:
+            return True
+        reason = f'exit {result.returncode}: {result.stderr.strip()}'
+    print(f'{python} does not start ({reason}); rebuilding the venv', flush=True)
+    return False
 
 
 def ensure_venv(venv=VENV, picard_src=PICARD_SRC):

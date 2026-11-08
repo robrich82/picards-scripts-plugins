@@ -36,6 +36,7 @@ def commands(monkeypatch):
             Path(cmd[-1]).mkdir(parents=True)
 
     monkeypatch.setattr(run_tests, 'run', fake_run)
+    # A fake venv python counts as working while its stub file is empty.
     monkeypatch.setattr(run_tests, 'interpreter_works', lambda python: python.is_file() and not python.read_text())
     return seen
 
@@ -143,6 +144,20 @@ def test_interpreter_works(tmp_path):
     assert not run_tests.interpreter_works(tmp_path / 'missing.exe')
     (tmp_path / 'broken.exe').write_text('')
     assert not run_tests.interpreter_works(tmp_path / 'broken.exe')
+
+
+def test_interpreter_failing_to_start_reports_why(monkeypatch, capsys):
+    """A venv launcher whose base interpreter is gone starts, then exits 103."""
+    seen = []
+
+    def no_base_python(cmd, capture_output, text):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 103, '', "No Python at 'C:\\uv\\cpython-3.12.11\\python.exe'\n")
+
+    monkeypatch.setattr(run_tests.subprocess, 'run', no_base_python)
+    assert not run_tests.interpreter_works(Path('venv/python'))
+    assert seen == [[str(Path('venv/python')), '-I', '-c', '']]
+    assert 'No Python at' in capsys.readouterr().out
 
 
 def test_failed_command_raises():
