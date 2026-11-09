@@ -146,7 +146,7 @@ def test_pgrep_failure_raises(monkeypatch):
         install.picard_running()
 
 
-@pytest.mark.parametrize(('target', 'what'), [('install', 'plugin'), ('install-plugin', 'plugin')])
+@pytest.mark.parametrize(('target', 'what'), [('install', 'all'), ('install-plugin', 'plugin'), ('install-scripts', 'scripts')])
 def test_make_targets_run_the_installer(target, what):
     out = subprocess.run(['make', '-n', 'PYTHON=python', target], cwd=ROOT, capture_output=True, text=True,
                          check=True).stdout

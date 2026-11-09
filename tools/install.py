@@ -1,6 +1,6 @@
-"""Install the plugin into MusicBrainz Picard.
+"""Install the tagger scripts, the plugin, or both into MusicBrainz Picard.
 
-Usage: python tools/install.py plugin
+Usage: python tools/install.py {scripts|plugin|all}
 """
 import argparse
 import os
@@ -71,9 +71,31 @@ def install_plugin():
     print(f'Plugin installed from {dest}')
 
 
+def installed_picard_version():
+    out = subprocess.run([*picard_cli(), '--version'], capture_output=True, text=True, check=True,
+                         env=dict(os.environ, PYTHONIOENCODING='utf-8')).stdout
+    return out.split()[-1] if out.split() else ''
+
+
+def install_scripts():
+    # The scripts go in through Picard's own config code, which must match the installed Picard:
+    # a different version could store the list differently or miss an upgrade step.
+    wanted = run_tests.PICARD_REF.removeprefix('release-')
+    installed = installed_picard_version()
+    if installed != wanted:
+        sys.exit(f'Installed Picard is {installed or "unknown"}, but the scripts are written with the config code '
+                 f'of {wanted}: change PICARD_REF in tools/run_tests.py to release-{installed}, or import them by hand')
+    run_tests.ensure_picard_source()
+    run_tests.ensure_venv()
+    env = dict(os.environ, PYTHONPATH=str(run_tests.PICARD_SRC))
+    result = subprocess.run([str(run_tests.venv_python(run_tests.VENV)), str(ROOT / 'tools' / 'picard_config_scripts.py')], env=env)
+    if result.returncode:
+        sys.exit(result.returncode)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('what', choices=['plugin'])
+    parser.add_argument('what', choices=['scripts', 'plugin', 'all'])
     args = parser.parse_args(argv)
     try:
         running = picard_running()
@@ -81,7 +103,10 @@ def main(argv=None):
         sys.exit(f"Can't tell whether Picard is running ({error}); close it and retry")
     if running:
         sys.exit('Picard is running: close it first, or it will undo the install when it exits')
-    install_plugin()
+    if args.what in ('scripts', 'all'):
+        install_scripts()
+    if args.what in ('plugin', 'all'):
+        install_plugin()
 
 
 if __name__ == '__main__':

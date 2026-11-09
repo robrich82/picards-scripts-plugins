@@ -16,7 +16,9 @@ My tagger scripts and plugin for [MusicBrainz Picard](https://picard.musicbrainz
 
 ### Installing a script
 
-Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn't already, then **Import** and pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
+With Picard closed, run `make install-scripts` (`make install` installs the scripts and the plugin). It writes every script into Picard's config, enabled and in file order, and turns on **Enable Tagger Script(s)**. It replaces a script of the same name in place, keeping whether you had it enabled, and leaves your other scripts alone. It saves a copy of the config first, as `Picard.ini.bak-<timestamp>` next to it. It refuses to run unless the installed Picard is the version the tests use (`PICARD_REF`), because it writes the config with that version's code.
+
+By hand: Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn't already, then **Import** and pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
 
 ## Plugins
 
