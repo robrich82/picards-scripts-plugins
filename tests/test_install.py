@@ -1,7 +1,9 @@
 """tools/install.py: the Picard-running guard and the plugin install, with picard-cli replaced by a recorder."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 
@@ -57,6 +59,14 @@ def test_reinstall_refreshes_the_copy(env):
     assert len(calls()) == 2
 
 
+def test_reinstall_replaces_read_only_files(env):
+    dest, _ = env
+    install.main(['plugin'])
+    os.chmod(dest / 'MANIFEST.toml', stat.S_IREAD)  # git checkouts on Windows can leave files read-only
+    install.main(['plugin'])
+    assert (dest / 'MANIFEST.toml').read_bytes() == (install.PLUGIN / 'MANIFEST.toml').read_bytes()
+
+
 def test_refuses_while_picard_running(env, monkeypatch):
     dest, calls = env
     monkeypatch.setattr(install, 'picard_running', lambda: True)
@@ -84,15 +94,60 @@ def test_picard_cli_failure_fails_the_install(env, monkeypatch):
 
 
 def test_picard_cli_override(monkeypatch, tmp_path):
-    monkeypatch.setenv('PICARD_CLI', str(tmp_path / 'picard-cli'))
-    assert install.picard_cli() == [str(tmp_path / 'picard-cli')]
+    cli = tmp_path / ('picard-cli.exe' if os.name == 'nt' else 'picard-cli')
+    cli.write_text('')
+    cli.chmod(0o755)
+    monkeypatch.setenv('PICARD_CLI', str(cli))
+    assert Path(install.picard_cli()[0]) == cli
+
+
+def test_picard_cli_override_must_exist(monkeypatch, tmp_path):
+    monkeypatch.setenv('PICARD_CLI', str(tmp_path / 'nope.exe'))
+    with pytest.raises(SystemExit, match='PICARD_CLI'):
+        install.picard_cli()
 
 
 def test_picard_running_check_runs_on_this_platform():
-    # The real tasklist/pgrep call; nothing in the test run is Picard.
-    assert install.picard_running() is False
+    # The real tasklist/pgrep call: it must run and parse here, whether or not Picard is open.
+    assert isinstance(install.picard_running(), bool)
 
 
-def test_make_target_runs_the_installer(env):
-    out = subprocess.run(['make', '-n', 'install'], cwd=ROOT, capture_output=True, text=True, check=True).stdout
-    assert out.split() == ['python', 'tools/install.py', 'plugin']
+def _fake_run(monkeypatch, stdout=b'', returncode=0):
+    def run(cmd, **kwargs):
+        if kwargs.get('check') and returncode:
+            raise subprocess.CalledProcessError(returncode, cmd)
+        return subprocess.CompletedProcess(cmd, returncode, stdout, b'pgrep: boom')
+
+    monkeypatch.setattr(install.subprocess, 'run', run)
+
+
+@pytest.mark.parametrize(('stdout', 'running'), [
+    (b'"picard.exe","4242","Console","1","180,000 K"\r\n', True),
+    (b'INFO: No tasks are running which match the specified criteria.\r\n', False),
+    ('INFORMATION: Es werden keine Tasks mit den angegebenen Kriterien ausgef\u00fchrt.\r\n'.encode('cp850'), False),
+])
+def test_tasklist_output_parsed(monkeypatch, stdout, running):
+    monkeypatch.setattr(install.os, 'name', 'nt')
+    _fake_run(monkeypatch, stdout)
+    assert install.picard_running() is running
+
+
+@pytest.mark.parametrize(('returncode', 'running'), [(0, True), (1, False)])
+def test_pgrep_result_parsed(monkeypatch, returncode, running):
+    monkeypatch.setattr(install.os, 'name', 'posix')
+    _fake_run(monkeypatch, returncode=returncode)
+    assert install.picard_running() is running
+
+
+def test_pgrep_failure_raises(monkeypatch):
+    monkeypatch.setattr(install.os, 'name', 'posix')
+    _fake_run(monkeypatch, returncode=2)
+    with pytest.raises(OSError, match='boom'):
+        install.picard_running()
+
+
+@pytest.mark.parametrize(('target', 'what'), [('install', 'plugin'), ('install-plugin', 'plugin')])
+def test_make_targets_run_the_installer(target, what):
+    out = subprocess.run(['make', '-n', 'PYTHON=python', target], cwd=ROOT, capture_output=True, text=True,
+                         check=True).stdout
+    assert out.split() == ['python', 'tools/install.py', what]

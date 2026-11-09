@@ -1,7 +1,6 @@
 """Install the plugin into MusicBrainz Picard.
 
 Usage: python tools/install.py plugin
-Picard must be closed: it rewrites its config on exit, undoing the install.
 """
 import argparse
 import os
@@ -12,16 +11,19 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / 'plugins' / 'highest-disc-total'
+sys.path.insert(0, str(ROOT / 'tools'))
+import run_tests  # noqa: E402  needs the sys.path insert above
 
 
 def picard_running():
     """Whether Picard is running. Raises OSError when that can't be told, rather than guessing no."""
     if os.name == 'nt':
+        # Bytes: tasklist writes in the OEM code page, and its localised "no tasks" text isn't valid UTF-8.
         out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq picard.exe', '/NH', '/FO', 'CSV'],
-                             capture_output=True, text=True, check=True).stdout
-        return '"picard.exe"' in out.lower()
-    # Linux: python3 /usr/bin/picard; macOS: .../MusicBrainz Picard.app/Contents/MacOS/MusicBrainz Picard
-    result = subprocess.run(['pgrep', '-f', r'(^|/)picard( |$)|MusicBrainz Picard\.app'], capture_output=True)
+                             capture_output=True, check=True).stdout
+        return b'"picard.exe"' in out.lower()
+    # Linux: python3 /usr/bin/picard, python3 -m picard; macOS: .../MusicBrainz Picard.app/Contents/MacOS/picard-run
+    result = subprocess.run(['pgrep', '-f', r'(^|[/ ])picard( |$)|MusicBrainz Picard\.app'], capture_output=True)
     if result.returncode > 1:
         raise OSError(f'pgrep failed: {result.stderr.decode(errors="replace").strip()}')
     return result.returncode == 0
@@ -41,7 +43,10 @@ def local_plugins_dir():
 def picard_cli():
     """The picard-cli command, as a list. PICARD_CLI overrides it."""
     if os.environ.get('PICARD_CLI'):
-        return [os.environ['PICARD_CLI']]
+        found = shutil.which(os.environ['PICARD_CLI'])
+        if not found:
+            sys.exit(f"PICARD_CLI is {os.environ['PICARD_CLI']}, which isn't a program")
+        return [found]
     candidates = [shutil.which('picard-cli')]
     if os.name == 'nt':
         candidates.append(Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'MusicBrainz Picard' / 'picard-cli.exe')
@@ -54,9 +59,10 @@ def picard_cli():
 def install_plugin():
     dest = local_plugins_dir() / PLUGIN.name
     if dest.exists():
-        shutil.rmtree(dest)  # drops files the new version no longer has
+        run_tests.rmtree(dest)  # drops files the new version no longer has; handles read-only files
     shutil.copytree(PLUGIN, dest, ignore=shutil.ignore_patterns('__pycache__'))
-    # Forward slashes: picard-cli looks a path with no / up as a registry ID. Installing again is a no-op.
+    # Forward slashes: picard-cli looks a path with no / up as a registry ID. A repeat install of the same
+    # path is a no-op to picard-cli; the copy above is what updates the plugin.
     # PYTHONIOENCODING: on Windows its output otherwise ends in a UnicodeEncodeError traceback.
     env = dict(os.environ, PYTHONIOENCODING='utf-8')
     result = subprocess.run([*picard_cli(), '--yes', 'plugins', 'install', dest.as_posix()], env=env)

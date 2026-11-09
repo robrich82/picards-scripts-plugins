@@ -1,8 +1,8 @@
+# Picard must be closed; tools/install.py checks.
 PYTHON ?= python
 
 .PHONY: install install-plugin test
 
-# Picard must be closed; tools/install.py checks.
 install: install-plugin
 
 install-plugin:
