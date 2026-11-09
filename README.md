@@ -30,7 +30,7 @@ By hand: Options → Options… → Scripting. Tick **Enable Tagger Script(s)** 
 
 | Plugin | What it does |
 | --- | --- |
-| [`highest-disc-total`](plugins/highest-disc-total) | Lowers Total Discs to the highest disc number that has matched files, e.g. to `1` for a CD+DVD release when you only have the CD. Never raises it above the MusicBrainz value, and restores it when files for a later disc are matched. |
+| [`highest-disc-total`](plugins/highest-disc-total) | Sets Total Discs to the number of discs with matched files and renumbers later discs to close the gaps: `1` for a CD+DVD release when you only have the CD, and discs 1 and 3 of 4 become `1/2` and `2/2`. Restores the numbering when a missing disc is matched, and leaves alone a value you edit; add the tag to Preserved Tags to keep MusicBrainz's own value. On a release whose discs share recordings, saved renumbered files can re-match to the earlier disc when reloaded. |
 
 ### Installing a plugin
 
