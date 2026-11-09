@@ -67,6 +67,8 @@ uv run ty check
 
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
+CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)).
+
 `ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
 ## Licence
