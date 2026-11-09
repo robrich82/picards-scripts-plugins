@@ -37,6 +37,8 @@ def read_scripts():
         info = TaggingScriptInfo.create_from_yaml(path.read_text(encoding='utf-8'))
         if any(title == info['title'] for title, _ in scripts):
             sys.exit(f"{path.name}: another script is already titled {info['title']!r}")
+        if info['title'].endswith(IMPORTED):  # merge() reads that suffix as Picard's Import
+            sys.exit(f'{path.name}: a title must not end in {IMPORTED.strip()!r}')
         scripts.append((info['title'], info['script']))
     return scripts
 

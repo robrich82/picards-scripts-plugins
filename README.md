@@ -18,11 +18,11 @@ My tagger scripts and plugin for [MusicBrainz Picard](https://picard.musicbrainz
 
 With Picard closed, run `make install-scripts` (`make install` installs the scripts and the plugin). It writes the scripts into Picard's config and turns on **Enable Tagger Script(s)**:
 
-- A script already there, under its name or with ` (imported)` appended, is replaced in place and renamed back. It stays enabled if any copy of it was, and other copies are removed.
-- A new script is added at the end, enabled. Your other scripts are left where they are.
+- These scripts end up in file order. They take the places they already held, plus new places at the end, and your other scripts stay where they are.
+- A script already there, under its name or with ` (imported)` appended (English UI), is replaced and renamed back. It stays enabled if any copy of it was, and other copies are removed. A new one is enabled.
 - If an enabled profile has its own script list, that's the one updated, as Picard reads it. It names any other profile that has its own copy of one of these scripts.
 
-It saves a copy of the config first, next to it, with `.bak-<timestamp>` added to the name. It refuses to run unless the installed Picard is the version the tests use (`PICARD_REF`), because it writes the config with that version's code. `PICARD_CONFIG_FILE` sets the config file, for an install that keeps it somewhere else (Flatpak, Snap, portable).
+It saves a copy of the config first, next to it, with `.bak-<timestamp>` added to the name. It refuses to run unless the installed Picard is the version the tests use (`PICARD_REF`), because it writes the config with that version's code. `PICARD_CONFIG_FILE` sets the config file, for an install that keeps it somewhere else (Flatpak, Snap, portable). Such an install also needs `PICARD_CLI` pointed at a single program that runs its `picard-cli`, such as a wrapper script.
 
 By hand: Options → Options… → Scripting. Tick **Enable Tagger Script(s)** if it isn't already, then **Import** and pick the `.ptsp` file. Picard adds it **disabled**, with ` (imported)` appended to the name: rename it, tick it to enable it, move it into place, and delete the old version if you're replacing one.
 

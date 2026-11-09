@@ -151,6 +151,17 @@ def test_duplicate_titles_refused(ini, tmp_path, monkeypatch):
     assert ini.read_bytes() == original
 
 
+def test_imported_suffix_title_refused(tmp_path, monkeypatch):
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    ptsp = (ROOT / 'tagger-scripts' / '04-various-artists.ptsp').read_text(encoding='utf-8')
+    (scripts / '01-a.ptsp').write_text(ptsp.replace('title: Various Artists', 'title: Various Artists (imported)'),
+                                       encoding='utf-8')
+    monkeypatch.setattr(config_scripts, 'SCRIPTS', scripts)
+    with pytest.raises(SystemExit, match="must not end in"):
+        config_scripts.read_scripts()
+
+
 def test_newer_config_refused_untouched(ini):
     write_config(ini, [], version='3.1.0')
     original = ini.read_bytes()
