@@ -22,19 +22,21 @@ class HighestDiscTotalTest(PicardTestCase):
         ) = MagicMock()
         plugin = Plugin(PLUGINS_DIR, PLUGIN_ID)
         plugin.read_manifest()
+        assert plugin.manifest
+        self.manifest = plugin.manifest
         self.set_config_values(
             setting={
                 "clear_existing_tags": False,
                 "enable_tagger_scripts": False,
                 "list_of_scripts": [],
                 "preserved_tags": [],
-                "plugins3_enabled_plugins": [plugin.manifest.uuid],
+                "plugins3_enabled_plugins": [self.manifest.uuid],
             }
         )
         plugin.load_module()
         plugin.enable(self.tagger)
-        set_plugin_uuid(plugin.manifest.uuid, PLUGIN_ID)
-        self.addCleanup(unset_plugin_uuid, plugin.manifest.uuid)
+        set_plugin_uuid(self.manifest.uuid, PLUGIN_ID)
+        self.addCleanup(unset_plugin_uuid, self.manifest.uuid)
         self.addCleanup(plugin.disable)
         self.plugin = plugin
 
@@ -86,7 +88,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_manifest_valid_for_this_picard(self):
         from picard import api_versions_tuple
 
-        manifest = self.plugin.manifest
+        manifest = self.manifest
         assert manifest.validate() == []
         assert set(manifest.api_versions) & set(api_versions_tuple)
         assert manifest.license == "GPL-3.0-or-later"
@@ -186,7 +188,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_pre_save_renumbers_disc_reset_without_the_add_hook(self):
         from picard.file import run_file_pre_save_processors
 
-        uuid = self.plugin.manifest.uuid
+        uuid = self.manifest.uuid
         self.set_config_values(setting={"plugins3_enabled_plugins": []})
         album = self.make_album([2, 2, 2])
         self.match(album, 1)
@@ -367,7 +369,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_marker_carried_in_from_a_save_does_not_freeze_the_file(self):
         from picard.file import run_file_pre_save_processors
 
-        uuid = self.plugin.manifest.uuid
+        uuid = self.manifest.uuid
         album = self.make_album([3, 3, 3])
         f1 = self.match(album, 1)
         assert f1.metadata["totaldiscs"] == "1"
@@ -446,7 +448,7 @@ class HighestDiscTotalTest(PicardTestCase):
     def test_pre_save_fixes_total_reset_without_the_add_hook(self):
         from picard.file import run_file_pre_save_processors
 
-        uuid = self.plugin.manifest.uuid
+        uuid = self.manifest.uuid
         self.set_config_values(setting={"plugins3_enabled_plugins": []})
         album = self.make_album([3, 3])
         f1 = self.match(album, 1)  # matched before the plugin was enabled

@@ -14,6 +14,7 @@ import pytest
 _spec = importlib.util.spec_from_file_location(
     "run_tests", Path(__file__).resolve().parent.parent / "tools" / "run_tests.py"
 )
+assert _spec and _spec.loader
 run_tests = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_tests)
 

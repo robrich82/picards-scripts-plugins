@@ -12,6 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("install", ROOT / "tools" / "install.py")
+assert _spec and _spec.loader
 install = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(install)
 

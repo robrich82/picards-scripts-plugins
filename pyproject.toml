@@ -4,7 +4,10 @@ version = "0"
 requires-python = ">=3.12,<3.13"
 
 [dependency-groups]
-dev = ["ruff==0.17.4"]
+dev = [
+    "ruff==0.17.4",
+    "ty==0.0.99",
+]
 
 [tool.uv]
 exclude-newer = "1 day"
@@ -18,3 +21,8 @@ extend-select = ["I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "plugins/*/__init__.py" = ["N999"]  # the folder name is the plugin's install path
+
+[tool.ty.environment]
+# The test venv and the Picard source tools/run_tests.py fetches; the plugin runs inside Picard.
+python = ".picard/venv"
+extra-paths = [".picard/src", ".picard/src/test", "tools"]

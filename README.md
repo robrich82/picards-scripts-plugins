@@ -54,15 +54,18 @@ The first run downloads Picard's source (`release-3.0.4`) and builds a Python 3.
 
 To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py`](tools/run_tests.py).
 
-## Lint and format
+## Lint, format and type check
 
-[Ruff](https://docs.astral.sh/ruff/) is pinned in `uv.lock`:
+[Ruff](https://docs.astral.sh/ruff/) and [ty](https://docs.astral.sh/ty/) are pinned in `uv.lock`:
 
 ```sh
 uv sync --locked
 uv run ruff check
 uv run ruff format --check
+uv run ty check
 ```
+
+`ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
 `ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 

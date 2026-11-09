@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _load(name):
     spec = importlib.util.spec_from_file_location(name, ROOT / "tools" / f"{name}.py")
+    assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
