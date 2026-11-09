@@ -10,7 +10,7 @@ def _marker(tag):
     # The value the plugin last wrote to tag. Picard neither writes ~ variables to tags nor
     # compares them, but does carry them through re-matching and saving; a stale one is
     # harmless because the baseline still counts as the plugin's.
-    return f'~highest_disc_total_{tag}'
+    return f"~highest_disc_total_{tag}"
 
 
 def _int(value):
@@ -22,7 +22,7 @@ def _int(value):
 
 def _number(n, like):
     """n, zero-padded to the width of like when like is: a script's 01 stays 01."""
-    return str(n).zfill(len(like)) if like.startswith('0') else str(n)
+    return str(n).zfill(len(like)) if like.startswith("0") else str(n)
 
 
 def _album(track):
@@ -40,7 +40,7 @@ def _baseline(track, tag):
 
 def discs_with_files(album):
     """Sorted, distinct disc numbers of the tracks that have matched files."""
-    discs = {_int(_baseline(t, 'discnumber')) for t in album.tracks if t.files}
+    discs = {_int(_baseline(t, "discnumber")) for t in album.tracks if t.files}
     return sorted(d for d in discs if d is not None and d > 0)
 
 
@@ -48,7 +48,10 @@ def _set_tag(file, tag, baseline, target):
     # The tag is the plugin's to change while it holds the baseline or the value the plugin
     # last wrote; anything else is a user edit. Preserved Tags pins even the baseline.
     current = file.metadata[tag]
-    if tag in UserPreservedTags() or current not in {baseline, file.metadata[_marker(tag)]} - {''}:
+    if tag in UserPreservedTags() or current not in {
+        baseline,
+        file.metadata[_marker(tag)],
+    } - {""}:
         return False
     if current == target:
         return False
@@ -60,17 +63,19 @@ def apply_to_file(track, file, discs):
     if not discs:
         return False
     changed = False
-    mb_disc = _baseline(track, 'discnumber')
+    mb_disc = _baseline(track, "discnumber")
     if _int(mb_disc) in discs:
         new_disc = discs.index(_int(mb_disc)) + 1
-        changed = _set_tag(file, 'discnumber', mb_disc, _number(new_disc, mb_disc))
-    mb_total = _baseline(track, 'totaldiscs')
+        changed = _set_tag(file, "discnumber", mb_disc, _number(new_disc, mb_disc))
+    mb_total = _baseline(track, "totaldiscs")
     if _int(mb_total):
         # Capped at the track's own total, so it goes back up when a missing disc is matched,
         # and never below a disc number left in place (preserved or edited).
-        kept_disc = _int(file.metadata['discnumber']) or 0
+        kept_disc = _int(file.metadata["discnumber"]) or 0
         total = min(_int(mb_total), max(len(discs), kept_disc))
-        changed = _set_tag(file, 'totaldiscs', mb_total, _number(total, mb_total)) or changed
+        changed = (
+            _set_tag(file, "totaldiscs", mb_total, _number(total, mb_total)) or changed
+        )
     return changed
 
 
