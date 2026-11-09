@@ -2,5 +2,35 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "minimumReleaseAge": "1 day",
+  "vulnerabilityAlerts": {
+    "description": "Renovate defaults this to null for security fixes.",
+    "minimumReleaseAge": "1 day"
+  },
+  "platformAutomerge": false,
+  "customManagers": [
+    {
+      "description": "The Picard release the tests run against, and the README lines that name it.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^tools/run_tests\\.py$/", "/^README\\.md$/"],
+      "matchStrings": [
+        "PICARD_REF = 'release-(?<currentValue>[^']+)'",
+        "tested against Picard (?<currentValue>\\d+(?:\\.\\d+)+)",
+        "`release-(?<currentValue>\\d+(?:\\.\\d+)+)`"
+      ],
+      "depNameTemplate": "metabrainz/picard",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "pep440",
+      "extractVersionTemplate": "^release-(?<version>.+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge non-major updates once every check is green. platformAutomerge is off because main has no required status checks, so GitHub would merge before CI finishes. Not digest: a re-pointed tag keeps its old release date, so it skips minimumReleaseAge.",
+      "matchUpdateTypes": ["minor", "patch", "pin"],
+      "matchCurrentVersion": "!/^v?0\\./",
+      "automerge": true
+    }
   ]
 }
