@@ -11,7 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'tagger-scripts'
-IMPORTED = ' (imported)'  # what Picard's Import appends to a script's name
+IMPORTED = ' (imported)'  # what Picard's Import appends to a script's name, in English
 
 
 def config_file():
@@ -32,40 +32,76 @@ def read_scripts():
     """(title, script) for each .ptsp, in file order."""
     from picard.script.serializer import TaggingScriptInfo
 
-    infos = [TaggingScriptInfo.create_from_yaml(p.read_text(encoding='utf-8')) for p in sorted(SCRIPTS.glob('*.ptsp'))]
-    return [(info['title'], info['script']) for info in infos]
+    scripts = []
+    for path in sorted(SCRIPTS.glob('*.ptsp')):
+        info = TaggingScriptInfo.create_from_yaml(path.read_text(encoding='utf-8'))
+        if any(title == info['title'] for title, _ in scripts):
+            sys.exit(f"{path.name}: another script is already titled {info['title']!r}")
+        scripts.append((info['title'], info['script']))
+    return scripts
 
 
 def merge(existing, scripts):
     """Picard's list_of_scripts rows with scripts installed.
 
-    A script already there (by name, or name + " (imported)") is replaced in place and keeps its
-    enabled state; a new one is appended, enabled. Duplicates of ours are dropped, and ours are then
-    put in file order within the slots they hold, leaving everyone else's scripts where they were.
+    A script already there (by name, or name + " (imported)") is replaced in place, enabled if any copy
+    of it was; a new one is appended, enabled. Duplicates of ours are dropped, and ours are then put in
+    file order within the slots they hold, leaving everyone else's scripts where they were.
     """
-    names = {title for title, _ in scripts}
-    rows, seen = [], set()
+    titles = {title for title, _ in scripts}
+    enabled_by_title, rows = {}, []
     for _, name, enabled, content in existing:
         base = name.removesuffix(IMPORTED)
-        if base in names:
-            if base in seen:
-                continue
-            seen.add(base)
-            name = base
-        rows.append([name, enabled, content])
-    slots = []
-    for title, content in scripts:
-        index = next((i for i, row in enumerate(rows) if row[0] == title), None)
-        if index is None:
-            rows.append([title, True, content])
-            index = len(rows) - 1
+        if base not in titles:
+            rows.append((name, enabled, content))
+        elif base in enabled_by_title:  # a duplicate: dropped
+            enabled_by_title[base] = enabled_by_title[base] or enabled
         else:
-            rows[index][2] = content
-        slots.append(index)
-    ours = [rows[i] for i in slots]
-    for slot, row in zip(sorted(slots), ours):
-        rows[slot] = row
-    return [(pos, name, enabled, content) for pos, (name, enabled, content) in enumerate(rows)]
+            enabled_by_title[base] = enabled
+            rows.append(None)  # a slot for one of ours
+    rows += [None] * (len(scripts) - len(enabled_by_title))
+    ours = iter((title, enabled_by_title.get(title, True), content) for title, content in scripts)
+    rows = [next(ours) if row is None else row for row in rows]
+    return [(pos, *row) for pos, row in enumerate(rows)]
+
+
+def reading_profile(config, name):
+    """The profile Picard reads option `name` from: the first enabled one with a value. None for the base."""
+    settings = config.profiles['user_profile_settings'] or {}
+    for profile in config.profiles['user_profiles'] or []:
+        if profile['enabled'] and (settings.get(profile['id']) or {}).get(name) is not None:
+            return profile
+    return None
+
+
+def write(config, name, value):
+    """Set option `name` where Picard reads it, and return that profile (None for the base setting).
+
+    Not plain setting[name] = value: that also picks a profile that tracks the option with no value yet,
+    which Picard skips when reading.
+    """
+    profile = reading_profile(config, name)
+    if profile is None:
+        with config.setting.no_profile():
+            config.setting[name] = value
+    else:
+        settings = config.profiles['user_profile_settings']
+        settings[profile['id']][name] = value
+        config.profiles['user_profile_settings'] = settings
+    return profile
+
+
+def other_copies(config, scripts, written):
+    """(profile title, our titles) for each other profile with its own list holding some of ours."""
+    titles = {title for title, _ in scripts}
+    settings = config.profiles['user_profile_settings'] or {}
+    for profile in config.profiles['user_profiles'] or []:
+        rows = (settings.get(profile['id']) or {}).get('list_of_scripts')
+        if rows is None or (written and profile['id'] == written['id']):
+            continue
+        names = sorted({name.removesuffix(IMPORTED) for _, name, *_ in rows} & titles)
+        if names:
+            yield profile['title'], names
 
 
 def main():
@@ -78,18 +114,29 @@ def main():
     if not path.is_file():
         sys.exit(f'No Picard config at {path}: start Picard once, close it, and retry')
     config = Config.from_file(None, str(path))
-    if Version.from_string(config.application['version']) > PICARD_VERSION:
-        sys.exit(f"{path} is from Picard {config.application['version']}, newer than {PICARD_VERSION.short_str()}")
-    backup = path.with_name(f'{path.name}.bak-{datetime.now():%Y%m%d-%H%M%S}')
-    shutil.copyfile(path, backup)
+    if config.status() != config.Status.NoError:  # sync() would still write over it
+        sys.exit(f"Can't read {path} ({config.status().name}); nothing was changed")
+    version, wanted = Version.from_string(config.application['version']), PICARD_VERSION.short_str()
+    if version > PICARD_VERSION:
+        sys.exit(f'{path} is from Picard {version.short_str()}, newer than {wanted}')
+    if version < PICARD_VERSION:  # Picard's upgrade steps would later run over the new scripts too
+        sys.exit(f'{path} is from Picard {version.short_str()}: start Picard {wanted} once so it upgrades '
+                 f'the config, close it, and retry')
     scripts = read_scripts()
-    # setting[...] writes to an active profile when the profile overrides the option, as Picard reads it.
-    config.setting['list_of_scripts'] = merge(config.setting['list_of_scripts'], scripts)
-    config.setting['enable_tagger_scripts'] = True
+    backup = path.with_name(f'{path.name}.bak-{datetime.now():%Y%m%d-%H%M%S}')
+    try:
+        shutil.copyfile(path, backup)
+    except OSError as error:
+        sys.exit(f"Can't back up {path} ({error}); nothing was changed")
+    written = write(config, 'list_of_scripts', merge(config.setting['list_of_scripts'], scripts))
+    write(config, 'enable_tagger_scripts', True)
     config.sync()
     if config.status() != config.Status.NoError:
-        sys.exit(f'Writing {path} failed ({config.status()}); the backup is {backup}')
-    print(f'Installed {len(scripts)} tagger scripts into {path} (backup: {backup.name})')
+        sys.exit(f'Writing {path} failed ({config.status().name}); it may be partly written: restore {backup}')
+    where = f"profile {written['title']!r} in " if written else ''
+    print(f'Installed {len(scripts)} tagger scripts into {where}{path} (backup: {backup.name})')
+    for title, names in other_copies(config, scripts, written):
+        print(f"Not updated: profile {title!r} has its own copy of {', '.join(names)}")
 
 
 if __name__ == '__main__':

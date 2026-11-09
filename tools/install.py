@@ -4,6 +4,7 @@ Usage: python tools/install.py {scripts|plugin|all}
 """
 import argparse
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -72,9 +73,14 @@ def install_plugin():
 
 
 def installed_picard_version():
-    out = subprocess.run([*picard_cli(), '--version'], capture_output=True, text=True, check=True,
-                         env=dict(os.environ, PYTHONIOENCODING='utf-8')).stdout
-    return out.split()[-1] if out.split() else ''
+    """'3.0.4' from 'MusicBrainz Picard 3.0.4'; a daily build appends ' (<build id>)'."""
+    cmd = [*picard_cli(), '--version']
+    result = subprocess.run(cmd, capture_output=True, encoding='utf-8', errors='replace',
+                            env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+    if result.returncode:
+        sys.exit(f'{cmd[0]} --version failed with exit code {result.returncode}: {result.stderr.strip()}')
+    match = re.search(r'Picard (\S+)', result.stdout)
+    return match[1] if match else ''
 
 
 def install_scripts():
@@ -84,7 +90,7 @@ def install_scripts():
     installed = installed_picard_version()
     if installed != wanted:
         sys.exit(f'Installed Picard is {installed or "unknown"}, but the scripts are written with the config code '
-                 f'of {wanted}: change PICARD_REF in tools/run_tests.py to release-{installed}, or import them by hand')
+                 f'of {wanted}: point PICARD_REF in tools/run_tests.py at its release, or import them by hand')
     run_tests.ensure_picard_source()
     run_tests.ensure_venv()
     env = dict(os.environ, PYTHONPATH=str(run_tests.PICARD_SRC))
