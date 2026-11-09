@@ -147,6 +147,15 @@ def test_interpreter_works(tmp_path):
     assert not run_tests.interpreter_works(tmp_path / 'broken.exe')
 
 
+def test_venv_without_pytest_is_rebuilt(tmp_path, capsys):
+    """A uv sync aimed at the venv strips pytest but leaves the stamp and a working interpreter."""
+    import venv
+
+    venv.create(tmp_path / 'stripped', with_pip=False)
+    assert not run_tests.interpreter_works(run_tests.venv_python(tmp_path / 'stripped'))
+    assert "No module named 'pytest'" in capsys.readouterr().out
+
+
 def test_interpreter_failing_to_start_reports_why(monkeypatch, capsys):
     """A venv launcher whose base interpreter is gone starts, then exits 103. It prints the path in the
     ANSI code page, which need not decode as UTF-8."""
@@ -158,7 +167,7 @@ def test_interpreter_failing_to_start_reports_why(monkeypatch, capsys):
 
     monkeypatch.setattr(run_tests.subprocess, 'run', no_base_python)
     assert not run_tests.interpreter_works(Path('venv/python'))
-    assert seen == [[str(Path('venv/python')), '-I', '-c', '']]
+    assert seen == [[str(Path('venv/python')), '-I', '-c', 'import pytest']]
     assert "(exit 103: No Python at 'C:\\Users\\Ren\\xe9\\python.exe'); rebuilding" in capsys.readouterr().out
 
 
@@ -219,5 +228,5 @@ def test_python_matches_requires_python():
     """uv sync picks the dev tools' interpreter from requires-python; the test venv uses PYTHON."""
     with open(run_tests.ROOT / 'pyproject.toml', 'rb') as f:
         requires = tomllib.load(f)['project']['requires-python']
-    major, minor = run_tests.PYTHON.split('.')
+    major, minor = run_tests.PYTHON.split('.')[:2]
     assert requires == f'>={major}.{minor},<{major}.{int(minor) + 1}'

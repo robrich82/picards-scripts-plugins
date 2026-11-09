@@ -9,6 +9,10 @@ dev = ["ruff==0.17.4"]
 [tool.uv]
 exclude-newer = "1 day"
 
+[tool.ruff]
+# These run on whatever Python is installed, before the 3.12 venv exists.
+per-file-target-version = { "tools/run_tests.py" = "py39", "tools/install.py" = "py39" }
+
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
 

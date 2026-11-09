@@ -43,7 +43,7 @@ def _clear_readonly(func, path, exc):
 
 def rmtree(path):
     """shutil.rmtree that also removes read-only files, such as git pack files on Windows."""
-    if sys.version_info >= (3, 12):  # noqa: UP036  runs on the host Python, before the 3.12 venv exists
+    if sys.version_info >= (3, 12):
         shutil.rmtree(path, onexc=_clear_readonly)
     else:
         shutil.rmtree(path, onerror=_clear_readonly)
@@ -62,10 +62,11 @@ def ensure_picard_source(picard_dir=PICARD_DIR):
 
 
 def interpreter_works(python):
-    """False, with the reason printed, when the venv's python is missing or won't start (e.g. its base
-    interpreter was uninstalled). -I keeps PYTHON* variables from failing the check on every run."""
+    """False, with the reason printed, when the venv's python is missing, won't start (e.g. its base
+    interpreter was uninstalled) or has lost pytest (e.g. to a uv sync aimed at it).
+    -I keeps PYTHON* variables from failing the check on every run."""
     try:
-        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True, check=False)
+        result = subprocess.run([str(python), '-I', '-c', 'import pytest'], capture_output=True, check=False)
     except OSError as error:
         reason = error
     else:
@@ -73,7 +74,7 @@ def interpreter_works(python):
             return True
         # Bytes: the launcher writes in the ANSI code page; backslashreplace stays printable on any console.
         reason = f'exit {result.returncode}: {result.stderr.decode(errors="backslashreplace").strip()}'
-    print(f'{python} does not start ({reason}); rebuilding the venv', flush=True)
+    print(f'{python} fails to start or import pytest ({reason}); rebuilding the venv', flush=True)
     return False
 
 
