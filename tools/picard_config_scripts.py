@@ -3,11 +3,11 @@
 Run by tools/install.py inside the test venv, with Picard's source on sys.path and Picard closed.
 PICARD_CONFIG_FILE overrides the config file.
 """
-from datetime import datetime
 import os
-from pathlib import Path
 import shutil
 import sys
+from datetime import datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'tagger-scripts'
@@ -18,9 +18,8 @@ def config_file():
     """The file Picard itself would open (Config.from_app): a versioned Picard-x.y.z.ini wins."""
     if os.environ.get('PICARD_CONFIG_FILE'):
         return Path(os.environ['PICARD_CONFIG_FILE'])
-    from PyQt6 import QtCore
-
     from picard import PICARD_APP_NAME, PICARD_ORG_NAME, PICARD_VERSION
+    from PyQt6 import QtCore
 
     path = Path(QtCore.QSettings(QtCore.QSettings.Format.IniFormat, QtCore.QSettings.Scope.UserScope,
                                  PICARD_ORG_NAME, PICARD_APP_NAME).fileName())

@@ -50,9 +50,18 @@ The tests run every script, in file order, through Picard's real script parser o
 python tools/run_tests.py
 ```
 
-The first run downloads Picard's source (`release-3.0.4`) into `.picard/` and builds a Python 3.12 environment in `.venv/`; both are git-ignored. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
+The first run downloads Picard's source (`release-3.0.4`) and builds a Python 3.12 environment in it, both in the git-ignored `.picard/`. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
 
 To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py`](tools/run_tests.py).
+
+## Lint
+
+[Ruff](https://docs.astral.sh/ruff/) is pinned in `uv.lock`:
+
+```sh
+uv sync --locked
+uv run ruff check
+```
 
 ## Licence
 

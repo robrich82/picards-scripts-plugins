@@ -1,8 +1,8 @@
 """Run the tagger scripts, in file order, through Picard's script parser on sample track metadata."""
 from pathlib import Path
 
-from picardtestcase import PicardTestCase
 import pytest
+from picardtestcase import PicardTestCase
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / 'tagger-scripts'
 SCRIPT_FILES = sorted(SCRIPTS_DIR.glob('*.ptsp'))

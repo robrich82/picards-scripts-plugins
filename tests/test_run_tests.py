@@ -1,11 +1,12 @@
 """The test runner's rebuild logic, with git and uv replaced by a recorder."""
 import importlib.util
 import os
-from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -151,7 +152,7 @@ def test_interpreter_failing_to_start_reports_why(monkeypatch, capsys):
     ANSI code page, which need not decode as UTF-8."""
     seen = []
 
-    def no_base_python(cmd, capture_output):
+    def no_base_python(cmd, capture_output, check):
         seen.append(cmd)
         return subprocess.CompletedProcess(cmd, 103, b'', b"No Python at 'C:\\Users\\Ren\xe9\\python.exe'\r\n")
 
@@ -201,8 +202,8 @@ def test_missing_tool_exits_with_its_name(monkeypatch):
 def test_main_forwards_args_and_exit_code(monkeypatch):
     seen = {}
 
-    def fake_subprocess_run(cmd, cwd, env):
-        seen.update(cmd=cmd, cwd=cwd, picard_src=env['PICARD_SRC'])
+    def fake_subprocess_run(cmd, cwd, env, check):
+        seen.update(cmd=cmd, cwd=cwd, picard_src=env['PICARD_SRC'], check=check)
         return subprocess.CompletedProcess(cmd, 3)
 
     monkeypatch.setattr(run_tests, 'ensure_picard_source', lambda: None)
@@ -211,4 +212,12 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['run_tests.py', '-k', 'CV'])
     assert run_tests.main() == 3
     assert seen == {'cmd': [str(run_tests.venv_python(run_tests.VENV)), '-m', 'pytest', '-k', 'CV'],
-                    'cwd': run_tests.ROOT, 'picard_src': str(run_tests.PICARD_SRC)}
+                    'cwd': run_tests.ROOT, 'picard_src': str(run_tests.PICARD_SRC), 'check': False}
+
+
+def test_python_matches_requires_python():
+    """uv sync picks the dev tools' interpreter from requires-python; the test venv uses PYTHON."""
+    with open(run_tests.ROOT / 'pyproject.toml', 'rb') as f:
+        requires = tomllib.load(f)['project']['requires-python']
+    major, minor = run_tests.PYTHON.split('.')
+    assert requires == f'>={major}.{minor},<{major}.{int(minor) + 1}'

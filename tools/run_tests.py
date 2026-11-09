@@ -1,15 +1,15 @@
 """Fetch Picard's source, build a test venv with uv, and run pytest against it.
 
 Usage: python tools/run_tests.py [pytest args...]
-Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/ and .venv/.
+Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/.
 """
 import hashlib
 import os
-from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
+from pathlib import Path
 
 PICARD_REF = 'release-3.0.4'
 PICARD_REPO = 'https://github.com/metabrainz/picard.git'
@@ -18,7 +18,7 @@ PYTHON = '3.12'
 ROOT = Path(__file__).resolve().parent.parent
 PICARD_DIR = ROOT / '.picard'
 PICARD_SRC = PICARD_DIR / 'src'
-VENV = ROOT / '.venv'
+VENV = PICARD_DIR / 'venv'  # not .venv, which uv sync owns and would strip
 
 
 def venv_python(venv):
@@ -43,7 +43,7 @@ def _clear_readonly(func, path, exc):
 
 def rmtree(path):
     """shutil.rmtree that also removes read-only files, such as git pack files on Windows."""
-    if sys.version_info >= (3, 12):
+    if sys.version_info >= (3, 12):  # noqa: UP036  runs on the host Python, before the 3.12 venv exists
         shutil.rmtree(path, onexc=_clear_readonly)
     else:
         shutil.rmtree(path, onerror=_clear_readonly)
@@ -65,7 +65,7 @@ def interpreter_works(python):
     """False, with the reason printed, when the venv's python is missing or won't start (e.g. its base
     interpreter was uninstalled). -I keeps PYTHON* variables from failing the check on every run."""
     try:
-        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True)
+        result = subprocess.run([str(python), '-I', '-c', ''], capture_output=True, check=False)
     except OSError as error:
         reason = error
     else:
@@ -99,7 +99,8 @@ def main():
     ensure_picard_source()
     ensure_venv()
     env = dict(os.environ, PICARD_SRC=str(PICARD_SRC))
-    return subprocess.run([str(venv_python(VENV)), '-m', 'pytest', *sys.argv[1:]], cwd=ROOT, env=env).returncode
+    return subprocess.run([str(venv_python(VENV)), '-m', 'pytest', *sys.argv[1:]], cwd=ROOT, env=env,
+                          check=False).returncode
 
 
 if __name__ == '__main__':

@@ -2,10 +2,10 @@
 
 The defaulting config is adapted from Picard's own test/conftest.py (GPL-2.0-or-later).
 """
-from contextlib import suppress
 import os
-from pathlib import Path
 import sys
+from contextlib import suppress
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest

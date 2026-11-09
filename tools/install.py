@@ -5,15 +5,15 @@ Usage: python tools/install.py {scripts|plugin|all}
 import argparse
 import os
 import re
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / 'plugins' / 'highest-disc-total'
 sys.path.insert(0, str(ROOT / 'tools'))
-import run_tests  # noqa: E402  needs the sys.path insert above
+import run_tests  # after the sys.path insert above
 
 
 def picard_running():
@@ -24,7 +24,8 @@ def picard_running():
                              capture_output=True, check=True).stdout
         return b'"picard.exe"' in out.lower()
     # Linux: python3 /usr/bin/picard, python3 -m picard; macOS: .../MusicBrainz Picard.app/Contents/MacOS/picard-run
-    result = subprocess.run(['pgrep', '-f', r'(^|[/ ])picard( |$)|MusicBrainz Picard\.app'], capture_output=True)
+    result = subprocess.run(['pgrep', '-f', r'(^|[/ ])picard( |$)|MusicBrainz Picard\.app'], capture_output=True,
+                            check=False)
     if result.returncode > 1:
         raise OSError(f'pgrep failed: {result.stderr.decode(errors="replace").strip()}')
     return result.returncode == 0
@@ -66,7 +67,7 @@ def install_plugin():
     # path is a no-op to picard-cli; the copy above is what updates the plugin.
     # PYTHONIOENCODING: on Windows its output otherwise ends in a UnicodeEncodeError traceback.
     env = dict(os.environ, PYTHONIOENCODING='utf-8')
-    result = subprocess.run([*picard_cli(), '--yes', 'plugins', 'install', dest.as_posix()], env=env)
+    result = subprocess.run([*picard_cli(), '--yes', 'plugins', 'install', dest.as_posix()], env=env, check=False)
     if result.returncode:
         sys.exit(f'picard-cli failed with exit code {result.returncode}')
     print(f'Plugin installed from {dest}')
@@ -76,7 +77,7 @@ def installed_picard_version():
     """'3.0.4' from 'MusicBrainz Picard 3.0.4'; a daily build appends ' (<build id>)'."""
     cmd = [*picard_cli(), '--version']
     result = subprocess.run(cmd, capture_output=True, encoding='utf-8', errors='replace',
-                            env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+                            env=dict(os.environ, PYTHONIOENCODING='utf-8'), check=False)
     if result.returncode:
         sys.exit(f'{cmd[0]} --version failed with exit code {result.returncode}: {result.stderr.strip()}')
     match = re.search(r'Picard (\S+)', result.stdout)
@@ -94,7 +95,8 @@ def install_scripts():
     run_tests.ensure_picard_source()
     run_tests.ensure_venv()
     env = dict(os.environ, PYTHONPATH=str(run_tests.PICARD_SRC))
-    result = subprocess.run([str(run_tests.venv_python(run_tests.VENV)), str(ROOT / 'tools' / 'picard_config_scripts.py')], env=env)
+    result = subprocess.run([str(run_tests.venv_python(run_tests.VENV)), str(ROOT / 'tools' / 'picard_config_scripts.py')], env=env,
+                            check=False)
     if result.returncode:
         sys.exit(result.returncode)
 

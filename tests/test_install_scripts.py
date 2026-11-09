@@ -1,10 +1,10 @@
 """Installing the tagger scripts into a real Picard.ini, written and read back with Picard's own config code."""
 import importlib.util
 import os
-from pathlib import Path
 import shutil
 import stat
 import sys
+from pathlib import Path
 
 import pytest
 
