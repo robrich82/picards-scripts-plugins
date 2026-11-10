@@ -32,6 +32,12 @@
       "enabled": false
     },
     {
+      "description": "mise installs make from conda-forge, but Renovate's mise manager looks conda tools up with no channel, which 404s.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["make"],
+      "overridePackageName": "conda-forge/make"
+    },
+    {
       "description": "Automerge non-major updates once every check is green. platformAutomerge is off because main has no required status checks, so GitHub would merge before CI finishes. Not digest: a re-pointed tag keeps its old release date, so it skips minimumReleaseAge.",
       "matchUpdateTypes": ["minor", "patch", "pin"],
       "matchCurrentVersion": "!/^v?0\\./",
