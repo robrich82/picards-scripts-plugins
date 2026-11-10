@@ -69,7 +69,33 @@ def test_reinstall_refreshes_the_copy(env):
     assert sorted(p.name for p in dest.iterdir()) == sorted(
         p.name for p in install.PLUGIN.iterdir() if p.name != "__pycache__"
     )
-    assert len(calls()) == 2
+    assert [call["argv"] for call in calls()] == [
+        ["--yes", "plugins", "install", dest.as_posix()],
+        ["--yes", "plugins", "install", dest.as_posix(), "--reinstall"],
+    ]
+
+
+def test_picard_cli_parses_both_installs(env, monkeypatch):
+    """The recorded argv against picard-cli's real parser, so a renamed flag fails when PICARD_REF moves."""
+    from picard.cli import build_root_parser
+    from picard.util import versions
+
+    # --long-version's text probes Qt's SSL DLL, which crashes (caught) on Windows outside the app.
+    monkeypatch.setattr(versions, "as_string", lambda: "")
+    dest, calls = env
+    install.main(["plugin"])
+    install.main(["plugin"])
+    first, repeat = (build_root_parser().parse_args(c["argv"]) for c in calls())
+    assert (first.yes, first.reinstall, first.source) == (
+        True,
+        False,
+        [dest.as_posix()],
+    )
+    assert (repeat.yes, repeat.reinstall, repeat.source) == (
+        True,
+        True,
+        [dest.as_posix()],
+    )
 
 
 def test_reinstall_replaces_read_only_files(env):

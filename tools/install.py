@@ -81,17 +81,26 @@ def picard_cli():
 
 def install_plugin():
     dest = local_plugins_dir() / PLUGIN.name
-    if dest.exists():
+    repeat = dest.exists()
+    if repeat:
         run_tests.rmtree(
             dest
         )  # drops files the new version no longer has; handles read-only files
     shutil.copytree(PLUGIN, dest, ignore=shutil.ignore_patterns("__pycache__"))
-    # Forward slashes: picard-cli looks a path with no / up as a registry ID. A repeat install of the same
-    # path is a no-op to picard-cli; the copy above is what updates the plugin.
+    # Forward slashes: picard-cli looks a path with no / up as a registry ID.
+    # --reinstall on a repeat: without it picard-cli skips the path and keeps the old manifest's metadata.
+    # Not on a first install, where it would also skip picard-cli's check for a plugin with the same UUID.
     # PYTHONIOENCODING: on Windows its output otherwise ends in a UnicodeEncodeError traceback.
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     result = subprocess.run(
-        [*picard_cli(), "--yes", "plugins", "install", dest.as_posix()],
+        [
+            *picard_cli(),
+            "--yes",
+            "plugins",
+            "install",
+            dest.as_posix(),
+            *(["--reinstall"] if repeat else []),
+        ],
         env=env,
         check=False,
     )
