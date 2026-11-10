@@ -1,7 +1,4 @@
 {
-  "env": {
-    "GH_REPO": "robrich82/picards-scripts-plugins"
-  },
   "hooks": {
     "PreToolUse": [
       {

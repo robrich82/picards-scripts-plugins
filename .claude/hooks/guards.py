@@ -1,14 +1,16 @@
-"""PreToolUse hook: the CLAUDE.md gotchas that GH_REPO in settings.json doesn't cover.
+"""PreToolUse hook: the CLAUDE.md gotchas about .picard/ and installs, which permission rules miss.
 
-- `gh repo view/fork/sync/...` without a repo ignore GH_REPO and use the git remote: upstream
-  Picard in .picard/src. Ask, unless the command names this repo.
-- make install* and tools/install.py write the user's real Picard config: ask first.
-- The Edit/Write tools may not touch .picard/, the upstream Picard clone and test venv that
-  tools/run_tests.py manages. Shell commands that write there are not caught.
+- gh run in .picard/src targets the upstream metabrainz/picard clone. Ask before a gh command
+  when the shell's cwd is inside .picard/ or the command mentions .picard, unless it passes -R.
+- make install*, tools/install.py and `picard-cli plugins install` write the user's real Picard
+  config: ask first.
+- Deny Edit/Write/MultiEdit/NotebookEdit inside .picard/, the upstream Picard clone and test
+  venv that tools/run_tests.py manages. Shell commands that write there are not caught.
 
-The command checks are best-effort text matches, not a shell parser. The install check skips
-quoted text, so a commit message doesn't count, but neither does `python "tools/install.py"`;
-an unquoted mention such as `ruff check tools/install.py` asks too.
+The command checks are best-effort text matches per `;`/`&`/`|`/newline-separated segment, not a
+shell parser. Quoted text with spaces is skipped: a simply-quoted commit message, but also
+`bash -c "make install"`. Heredoc bodies and unquoted mentions such as `git add tools/install.py`
+ask too.
 """
 
 import json
@@ -16,30 +18,27 @@ import re
 import sys
 from pathlib import Path
 
-REPO = "robrich82/picards-scripts-plugins"
-# gh repo subcommands with no -R flag, which act on the current directory's repo when given none.
-GH_REPO_HERE = re.compile(
-    r"""\bgh(?:\.exe)?["']?\s+repo\s+"""
-    r"(?:view|fork|sync|edit|set-default|delete|archive|unarchive)\b",
-    re.IGNORECASE,
+GH = re.compile(r"\bgh(?:\.exe)?\s", re.IGNORECASE)
+GH_REPO_FLAG = re.compile(r"\s(?:-R|--repo)")
+PICARD_DIR = re.compile(r"\.picard(?![\w.-])", re.IGNORECASE)
+INSTALLER = re.compile(
+    r"\binstall\.py\b|tools\.install\b|\bplugins\s+install\b", re.IGNORECASE
 )
+MAKE = re.compile(r"\bmake(?:\.exe)?\s", re.IGNORECASE)
+INSTALL_TARGET = re.compile(r"\sinstall[\w-]*(?![\w.])", re.IGNORECASE)
 QUOTED = re.compile(r"""'[^']*'|"[^"]*\"""")
-INSTALL = re.compile(
-    r"\binstall\.py\b|tools\.install\b|(?:^|[\s;&|(])make\s[^;&|\n]*\binstall",
-    re.IGNORECASE,
-)
+QUOTED_EXE = re.compile(r"(?:^|[/\\])(gh|make)(?:\.exe)?$", re.IGNORECASE)
+CONTINUATION = re.compile(r"[\\`]\r?\n")
+SEPARATOR = re.compile(r"[;&|()\n]")
 
+# The ask reasons are shown to the user in the permission prompt, not to Claude.
 GH_REASON = (
-    f"gh repo subcommands ignore GH_REPO: name the repo (gh repo view {REPO}). "
-    "Without it gh uses the git remote, and .picard/src is a metabrainz/picard clone."
+    "gh run in .picard/ acts on the upstream metabrainz/picard clone, not this repo."
 )
-INSTALL_REASON = (
-    "This may install into the real Picard config and plugin folder. "
-    "Only run it when the user asked for an install."
-)
+INSTALL_REASON = "Installs into your real Picard config and plugin folder, or mentions the installer."
 PICARD_REASON = (
     ".picard/ holds the upstream Picard clone and test venv that tools/run_tests.py "
-    "builds; edits there change what the tests run against."
+    "builds; edits there change what the tests run against. Edit the repo's own files."
 )
 
 
@@ -52,31 +51,53 @@ def decision(kind, reason):
     return {"hookSpecificOutput": output}
 
 
-def check_command(command):
-    if GH_REPO_HERE.search(command) and REPO not in command.lower():
-        return decision("ask", GH_REASON)
-    if INSTALL.search(QUOTED.sub("''", command)):
-        return decision("ask", INSTALL_REASON)
-    return None
-
-
 def repo_root(path):
     return next(
         (d for d in path.parents if (d / "tools" / "run_tests.py").is_file()), None
     )
 
 
-def check_path(file_path):
+def inside_picard(file_path):
+    """True if file_path is in, or is, a .picard/ folder at a repo root."""
     path = Path(file_path).resolve()
     root = repo_root(path)
-    if root is not None and path.is_relative_to(root / ".picard"):
-        return decision("deny", PICARD_REASON)
-    return None
+    return root is not None and path.is_relative_to(root / ".picard")
+
+
+def unquote(match):
+    """A quoted path to gh or make becomes its name, other single words stay, prose goes."""
+    text = match.group()[1:-1]
+    exe = QUOTED_EXE.search(text)
+    if exe:
+        return exe.group(1)
+    return text if text and not any(c.isspace() for c in text) else "''"
+
+
+def installs(segment):
+    make = MAKE.search(segment)
+    # Search from the space after `make`, so an install target can't match earlier text.
+    target = make and INSTALL_TARGET.search(segment, make.end() - 1)
+    return bool(INSTALLER.search(segment) or target)
+
+
+def check_command(command, cwd):
+    text = QUOTED.sub(unquote, CONTINUATION.sub(" ", command))
+    near_picard = bool(PICARD_DIR.search(text)) or (
+        isinstance(cwd, str) and bool(cwd) and inside_picard(cwd)
+    )
+    reasons = []
+    for segment in SEPARATOR.split(text):
+        if near_picard and GH.search(segment) and not GH_REPO_FLAG.search(segment):
+            reasons.append(GH_REASON)
+        if installs(segment):
+            reasons.append(INSTALL_REASON)
+    return decision("ask", " ".join(dict.fromkeys(reasons))) if reasons else None
 
 
 def main():
     try:
-        tool_input = json.loads(sys.stdin.buffer.read().decode("utf-8"))["tool_input"]
+        data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+        tool_input = data["tool_input"]
     except (ValueError, KeyError, TypeError):
         return 0
     if not isinstance(tool_input, dict):
@@ -85,9 +106,9 @@ def main():
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     result = None
     if isinstance(command, str):
-        result = check_command(command)
-    elif isinstance(path, str):
-        result = check_path(path)
+        result = check_command(command, data.get("cwd"))
+    elif isinstance(path, str) and inside_picard(path):
+        result = decision("deny", PICARD_REASON)
     if result:
         print(json.dumps(result))
     return 0

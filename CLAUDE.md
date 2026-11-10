@@ -12,7 +12,7 @@ uv run ty check                           # needs one run_tests.py first: reads 
 
 ## Gotchas
 
-- `.picard/src` in every worktree is a metabrainz/picard clone, so gh run there targets upstream. `.claude/settings.json` sets `GH_REPO` for Claude sessions, but `gh repo view/fork/sync/edit` ignore it: give them the repo as an argument. Pass `-R` for any other repo, and in a plain terminal.
+- Always pass `-R robrich82/picards-scripts-plugins` to `gh`: `.picard/src` in every worktree is a metabrainz/picard clone, and gh run from there targets upstream.
 - `tools/run_tests.py` and `tools/install.py` run on the system Python before the 3.12 venv exists, so keep them 3.9-compatible.
 - Don't run `make install*` / `tools/install.py` unless asked: they write the user's real Picard config and plugin folder.
 - Behaviour is documented in the README tables and, for the plugin, `MANIFEST.toml` `long_description`. Update them in the same change.

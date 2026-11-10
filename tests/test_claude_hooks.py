@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -249,14 +250,8 @@ def test_settings_wire_up_every_hook_script():
     assert wired["guards.py"] == ("PreToolUse", shells_and_edits)
 
 
-def test_settings_set_gh_repo():
-    """Most gh commands honour GH_REPO; guards.py covers the gh repo ones that don't."""
-    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    assert settings["env"]["GH_REPO"] == REPO
-
-
 def test_settings_command_runs_the_guard():
-    stdin = json.dumps({"tool_input": {"command": "gh repo view"}})
+    stdin = json.dumps({"tool_input": {"command": "make install"}})
     hook = next(h for _, _, h in settings_hooks() if "guards.py" in h["command"])
     result = run_settings_command(hook, ROOT, stdin)
     assert (
@@ -291,41 +286,82 @@ def test_settings_commands_do_nothing_when_the_hook_file_is_missing(tmp_path):
         assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
-def run_guard(tool_name, tool_input):
+def run_guard(tool_name, tool_input, cwd=ROOT):
     payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": tool_input,
     }
+    if cwd is not None:
+        payload["cwd"] = str(cwd)
     result = run_hook("guards.py", json.dumps(payload))
     assert (result.returncode, result.stderr) == (0, "")
     return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout else None
 
 
-GUARD_CASES = [
-    # gh repo subcommands that ignore GH_REPO, without this repo: ask
-    ("gh repo view", "ask"),
-    ("gh repo view --web", "ask"),
-    ("cd .picard/src && gh repo fork --clone=false", "ask"),
-    (r'& "C:\Program Files\GitHub CLI\gh.exe" repo sync', "ask"),
-    ("C:/tools/gh.exe repo set-default", "ask"),
-    ("gh repo edit --description x", "ask"),
-    ("gh repo view metabrainz/picard", "ask"),
-    # gh repo with this repo, other gh repo subcommands, and gh commands GH_REPO covers: allow
-    (f"gh repo view {REPO}", None),
-    (f"gh repo view {REPO.upper()} --json name", None),
-    (f"gh repo edit {REPO} --description x", None),
-    ("gh repo list", None),
-    ("gh repo clone metabrainz/picard .picard/src", None),
-    ("gh pr list", None),
-    ("gh api repos/{owner}/{repo}/pulls", None),
-    ("gh auth status", None),
+def decision_for(command, cwd=ROOT):
+    output = run_guard("Bash", {"command": command}, cwd)
+    if output:
+        assert output["hookEventName"] == "PreToolUse"
+        assert output["permissionDecisionReason"]
+    return output["permissionDecision"] if output else None
+
+
+PICARD_SRC = ROOT / ".picard" / "src"
+GH_CASES = [
+    # gh with the shell in .picard/, or sent there, and no -R: ask
+    ("gh pr view 10", PICARD_SRC, "ask"),
+    ("gh repo view", PICARD_SRC, "ask"),
+    ("gh api repos/{owner}/{repo}/pulls", PICARD_SRC, "ask"),
+    ("GH pr list", PICARD_SRC, "ask"),
+    ("C:/tools/gh.exe pr list", PICARD_SRC, "ask"),
+    (r'& "C:\Program Files\GitHub CLI\gh.exe" pr list', PICARD_SRC, "ask"),
+    ("git status && gh pr list", ROOT / ".picard", "ask"),
+    (f"gh pr list && gh pr view 3 -R {REPO}", PICARD_SRC, "ask"),  # -R on one only
+    ("cd .picard/src && gh pr view 10", ROOT, "ask"),
+    (r"cd .picard\src; gh issue list", ROOT, "ask"),
+    ("cd .PICARD/src && gh pr view 10", ROOT, "ask"),
+    # gh with -R, gh elsewhere, or no gh: allow
+    (f"gh pr view 10 -R {REPO}", PICARD_SRC, None),
+    (f"gh pr view 10 --repo={REPO}", PICARD_SRC, None),
+    ("git log", PICARD_SRC, None),
+    ('git commit -m "gh pr list"', PICARD_SRC, None),
+    ("gh pr list", ROOT, None),
+    ("gh repo view", ROOT / "tools", None),
+    ("gh pr list", Path(tempfile.gettempdir()), None),
+    ("ls .picard.bak && gh pr list", ROOT, None),
+    ("gh pr list", None, None),  # no cwd in the hook input
+]
+
+
+@pytest.mark.parametrize(("command", "cwd", "expected"), GH_CASES)
+def test_guards_gh(command, cwd, expected):
+    assert decision_for(command, cwd) == expected
+
+
+def test_guards_gh_in_a_worktrees_picard(bare_repo):
+    assert decision_for("gh pr list", bare_repo / ".picard" / "src") == "ask"
+
+
+INSTALL_CASES = [
     # installs: ask
     ("make install", "ask"),
+    ("make INSTALL", "ask"),
     ("make -C . install-plugin", "ask"),
+    ("make.exe install", "ask"),
+    ("mingw32-make install", "ask"),
+    (r'& "C:\msys64\usr\bin\make.exe" install', "ask"),
     ("mise exec -- make install-scripts", "ask"),
-    ("git status; make install-scripts", "ask"),
+    ("git status;make install-scripts", "ask"),
+    ("a&&make install", "ask"),
+    ("(make install)", "ask"),
+    ("make install>install.log", "ask"),
+    ("make install-plugin>NUL", "ask"),
+    ("make \\\n  install", "ask"),
+    ("make `\n  install", "ask"),
+    ("picard-cli --yes plugins install C:/x/highest-disc-total", "ask"),
     ("python tools/install.py scripts", "ask"),
+    ('python "tools/install.py" scripts', "ask"),
     (r"cd x && .picard/venv/Scripts/python.exe -I tools\install.py all", "ask"),
     (r'& ".picard\venv\Scripts\python.exe" tools\install.py all', "ask"),
     ("cd tools && python install.py all", "ask"),
@@ -336,22 +372,37 @@ GUARD_CASES = [
     # not installs: allow
     ("make test", None),
     ('make test PYTEST_ARGS="-k install"', None),
+    ("make test > install.log", None),
+    ("make uninstall", None),
+    ("make test && uv pip install ruff", None),
+    ("cmake --install build", None),
     ("python tools/run_tests.py tests/test_install.py", None),
     ("cat Makefile | grep install", None),
-    ("uv pip install ruff", None),
     ('git commit -m "make sure we install the hook via tools/install.py"', None),
+    ("git commit -m 'make install and tools/install.py'", None),
 ]
 
 
-@pytest.mark.parametrize("tool", ["Bash", "PowerShell"])
-@pytest.mark.parametrize(("command", "expected"), GUARD_CASES)
-def test_guards_commands(tool, command, expected):
-    output = run_guard(tool, {"command": command})
-    decision = output["permissionDecision"] if output else None
-    assert decision == expected
-    if output:
-        assert output["hookEventName"] == "PreToolUse"
-        assert output["permissionDecisionReason"]
+@pytest.mark.parametrize(("command", "expected"), INSTALL_CASES)
+def test_guards_installs(command, expected):
+    # guards.py ignores the tool name; the settings matcher test covers Bash and PowerShell.
+    assert decision_for(command) == expected
+
+
+def test_guards_stay_fast_on_a_long_command():
+    """A regex that backtracks per `make` would run past the hook's 10s timeout."""
+    command = "echo " + "make x " * 20000
+    start = time.monotonic()
+    assert run_guard("Bash", {"command": command}) is None
+    assert time.monotonic() - start < 5
+
+
+def test_guards_give_every_reason_for_a_combined_command():
+    reason = run_guard(
+        "Bash", {"command": "cd .picard/src && gh pr list && make install"}
+    )
+    assert "upstream" in reason["permissionDecisionReason"]
+    assert "Picard config" in reason["permissionDecisionReason"]
 
 
 @pytest.mark.parametrize("tool", ["Edit", "Write", "MultiEdit", "NotebookEdit"])
@@ -384,7 +435,15 @@ def test_guards_allow_other_edits(path):
 
 @pytest.mark.parametrize(
     "stdin",
-    ["not json", "[]", "{}", '{"tool_input": null}', '{"tool_input": "gh pr list"}'],
+    [
+        "not json",
+        "[]",
+        "{}",
+        '{"tool_input": null}',
+        '{"tool_input": "gh pr list"}',
+        '{"tool_input": {}}',
+        '{"tool_input": {"command": 5}}',
+    ],
 )
 def test_guards_ignore_bad_input(stdin):
     result = run_hook("guards.py", stdin)
