@@ -5,7 +5,7 @@ description: Use when adding, changing or debugging a Picard tagger script (tagg
 
 # Picard tagger scripts
 
-The function reference is the Picard release under test, not the online docs, which describe newer versions: `.picard/src/picard/script/functions.py`, at `PICARD_REF` in `tools/run_tests.py`. Run `python tools/run_tests.py` once if `.picard/` is missing.
+The function reference is the Picard release under test, `PICARD_REF` in `tools/run_tests.py`: `.picard/src/picard/script/functions.py`. The online docs may describe a different version. Run `python tools/run_tests.py` once if `.picard/` is missing.
 
 ## File format
 
@@ -44,4 +44,4 @@ Whitespace inside an argument is part of its value: a `$set(a,` whose value `b` 
 2. Add `CASES` rows to `tests/test_tagger_scripts.py` as `(id, input tags, expected tags)`, using `artists()` for album-artist credits. Cover the case the change is for and the neighbouring cases it must not break.
 3. If the script writes a tag no other script writes, add it to `WRITTEN`.
 4. Update the script's row in the README table. That table is where the behaviour is documented: one sentence, with an input → output example.
-5. Run `python tools/run_tests.py -k <case id>`, then the full suite, then `uv run ruff check`.
+5. Run `python tools/run_tests.py -k <word>`, with one word from the case id: a whole id, with its spaces and `->`, silently selects no tests. Then run the full suite.
