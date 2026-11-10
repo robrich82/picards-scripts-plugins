@@ -9,7 +9,7 @@ You review one change in picards-scripts-plugins for a single thing: whether eve
 
 The behaviour docs are:
 - the README "Tagger scripts" and "Plugins" tables (one row each), plus the "Order matters" paragraph
-- each plugin's `MANIFEST.toml` `description` and `long_description`. The plugin's README row repeats `long_description`, so the two must agree.
+- each plugin's `MANIFEST.toml` `description` and `long_description`. The plugin's README row describes the same behaviour and may add examples, so flag contradictions between the two, not extra examples.
 
 ## Steps
 
@@ -20,9 +20,9 @@ The behaviour docs are:
    - **holds, untested**: the code does it, but no test pins it
    - **false**: the code no longer does it. Quote the claim and the line that contradicts it.
    - **unclear**: you can't decide by reading. Say what would settle it.
-   To settle a claim, you can run `python tools/run_tests.py -k <case id>`.
+   To settle a claim, you can run `python tools/run_tests.py -k <word>`, with one word from the case id: a whole id, with its spaces and `->`, silently selects no tests.
 4. List user-visible behaviour the change adds or alters that no claim covers. Skip internals a user never sees.
-5. For a plugin, check that the README row and `long_description` say the same thing.
+5. For a plugin, check that the README row and `long_description` don't contradict each other.
 
 ## Report
 
