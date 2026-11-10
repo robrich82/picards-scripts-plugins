@@ -15,6 +15,7 @@ HOOKS = ROOT / ".claude" / "hooks"
 SETTINGS = ROOT / ".claude" / "settings.json"
 SCRIPT_FILES = sorted((ROOT / "tagger-scripts").glob("*.ptsp"))
 POST_EDIT_HOOKS = ["check_ptsp.py", "ruff_format.py"]
+REPO = "robrich82/picards-scripts-plugins"
 
 
 def run_hook(name, stdin, env=None):
@@ -248,12 +249,18 @@ def test_settings_wire_up_every_hook_script():
     assert wired["guards.py"] == ("PreToolUse", shells_and_edits)
 
 
+def test_settings_set_gh_repo():
+    """Most gh commands honour GH_REPO; guards.py covers the gh repo ones that don't."""
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    assert settings["env"]["GH_REPO"] == REPO
+
+
 def test_settings_command_runs_the_guard():
-    stdin = json.dumps({"tool_input": {"command": "gh pr list"}})
+    stdin = json.dumps({"tool_input": {"command": "gh repo view"}})
     hook = next(h for _, _, h in settings_hooks() if "guards.py" in h["command"])
     result = run_settings_command(hook, ROOT, stdin)
     assert (
-        json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+        json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
     )
 
 
@@ -295,63 +302,44 @@ def run_guard(tool_name, tool_input):
     return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout else None
 
 
-REPO = "robrich82/picards-scripts-plugins"
 GUARD_CASES = [
-    # gh without a repo: deny
-    ("gh pr list", "deny"),
-    ("git fetch && gh pr create --draft --base main", "deny"),
-    ("C:/tools/gh.exe issue view 3", "deny"),
-    (r'& "C:\Program Files\GitHub CLI\gh.exe" pr list', "deny"),
-    ("timeout 30 gh run watch", "deny"),
-    ('gh pr create --title "fix -R handling" --base main', "deny"),
-    ('gh pr create --body "uses GH_REPO now"', "deny"),
-    ("echo GH_REPO; gh pr list", "deny"),
-    ("gh api repos/{owner}/{repo}/pulls", "deny"),
-    ("gh api 'repos/{owner}/{repo}/pulls'", "deny"),
-    ("gh repo view", "deny"),
-    ("cd .picard/src && gh repo edit --description x", "deny"),
-    ("make install && gh pr merge 3 --squash", "deny"),  # deny beats an earlier ask
-    # gh with a repo, or not repo-scoped: allow
-    (f"gh pr list -R {REPO}", None),
-    (f"gh pr list -R{REPO}", None),
-    (f"gh pr view 3 --repo={REPO} | jq .", None),
-    (f"$env:GH_REPO='{REPO}'; gh pr list", None),
-    (f"GH_REPO={REPO} gh pr list", None),
-    (f"gh pr list --json number -q '.[] | .number' -R {REPO}", None),
-    (f'gh pr create --title "A & B; c" -R {REPO}', None),
-    (
-        f"gh pr create --body \"$(cat <<'EOF'\nSummary\ngh run list\nEOF\n)\" -R {REPO}",
-        None,
-    ),
-    (f"gh pr create \\\n  -R {REPO} \\\n  --draft", None),
-    (f"gh pr create `\n  --repo {REPO} `\n  --draft", None),
-    (f"gh pr view https://github.com/{REPO}/pull/3", None),
+    # gh repo subcommands that ignore GH_REPO, without this repo: ask
+    ("gh repo view", "ask"),
+    ("gh repo view --web", "ask"),
+    ("cd .picard/src && gh repo fork --clone=false", "ask"),
+    (r'& "C:\Program Files\GitHub CLI\gh.exe" repo sync', "ask"),
+    ("C:/tools/gh.exe repo set-default", "ask"),
+    ("gh repo edit --description x", "ask"),
+    ("gh repo view metabrainz/picard", "ask"),
+    # gh repo with this repo, other gh repo subcommands, and gh commands GH_REPO covers: allow
     (f"gh repo view {REPO}", None),
-    (f"gh api repos/{REPO}/pulls", None),
+    (f"gh repo view {REPO.upper()} --json name", None),
+    (f"gh repo edit {REPO} --description x", None),
+    ("gh repo list", None),
+    ("gh repo clone metabrainz/picard .picard/src", None),
+    ("gh pr list", None),
+    ("gh api repos/{owner}/{repo}/pulls", None),
     ("gh auth status", None),
-    ("gh pr list --help", None),
-    ('git commit -m "Deny gh pr list without a repo flag"', None),
-    ("git commit -F - <<'EOF'\nGuard: gh issue view now needs a repo\nEOF", None),
     # installs: ask
     ("make install", "ask"),
     ("make -C . install-plugin", "ask"),
     ("mise exec -- make install-scripts", "ask"),
+    ("git status; make install-scripts", "ask"),
     ("python tools/install.py scripts", "ask"),
     (r"cd x && .picard/venv/Scripts/python.exe -I tools\install.py all", "ask"),
-    ("python3.12 -X utf8 tools/install.py all", "ask"),
+    (r'& ".picard\venv\Scripts\python.exe" tools\install.py all', "ask"),
     ("cd tools && python install.py all", "ask"),
     ("python -m tools.install all", "ask"),
-    ("uv run tools/install.py", "ask"),
+    ("uv run -mtools.install", "ask"),
     ("uv run --with rich python -I tools/install.py", "ask"),
+    ("uv run ruff check tools/install.py", "ask"),  # any unquoted mention asks
     # not installs: allow
     ("make test", None),
     ('make test PYTEST_ARGS="-k install"', None),
     ("python tools/run_tests.py tests/test_install.py", None),
-    ("uv run ruff check tools/install.py", None),
-    ("uv run ruff check tools/run_tests.py tools/install.py", None),
-    ("git diff tools/run_tests.py tools/install.py", None),
     ("cat Makefile | grep install", None),
-    ('git commit -m "make sure we install the hook"', None),
+    ("uv pip install ruff", None),
+    ('git commit -m "make sure we install the hook via tools/install.py"', None),
 ]
 
 
