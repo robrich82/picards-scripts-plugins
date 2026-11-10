@@ -237,6 +237,24 @@ def test_settings_wire_up_every_hook_script():
     assert set(wired) == {p.name for p in HOOKS.glob("*.py")}
     for name in POST_EDIT_HOOKS:
         assert wired[name] == ("PostToolUse", {"Edit", "Write", "MultiEdit"})
+    shells_and_edits = {
+        "Bash",
+        "PowerShell",
+        "Edit",
+        "Write",
+        "MultiEdit",
+        "NotebookEdit",
+    }
+    assert wired["guards.py"] == ("PreToolUse", shells_and_edits)
+
+
+def test_settings_command_runs_the_guard():
+    stdin = json.dumps({"tool_input": {"command": "gh pr list"}})
+    hook = next(h for _, _, h in settings_hooks() if "guards.py" in h["command"])
+    result = run_settings_command(hook, ROOT, stdin)
+    assert (
+        json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    )
 
 
 def test_settings_commands_run_the_hooks(in_repo):
@@ -264,3 +282,122 @@ def test_settings_commands_do_nothing_when_the_hook_file_is_missing(tmp_path):
     for _, _, hook in settings_hooks():
         result = run_settings_command(hook, tmp_path, stdin)
         assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def run_guard(tool_name, tool_input):
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+    }
+    result = run_hook("guards.py", json.dumps(payload))
+    assert (result.returncode, result.stderr) == (0, "")
+    return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout else None
+
+
+REPO = "robrich82/picards-scripts-plugins"
+GUARD_CASES = [
+    # gh without a repo: deny
+    ("gh pr list", "deny"),
+    ("git fetch && gh pr create --draft --base main", "deny"),
+    ("C:/tools/gh.exe issue view 3", "deny"),
+    (r'& "C:\Program Files\GitHub CLI\gh.exe" pr list', "deny"),
+    ("timeout 30 gh run watch", "deny"),
+    ('gh pr create --title "fix -R handling" --base main', "deny"),
+    ('gh pr create --body "uses GH_REPO now"', "deny"),
+    ("echo GH_REPO; gh pr list", "deny"),
+    ("gh api repos/{owner}/{repo}/pulls", "deny"),
+    ("gh api 'repos/{owner}/{repo}/pulls'", "deny"),
+    ("gh repo view", "deny"),
+    ("cd .picard/src && gh repo edit --description x", "deny"),
+    ("make install && gh pr merge 3 --squash", "deny"),  # deny beats an earlier ask
+    # gh with a repo, or not repo-scoped: allow
+    (f"gh pr list -R {REPO}", None),
+    (f"gh pr list -R{REPO}", None),
+    (f"gh pr view 3 --repo={REPO} | jq .", None),
+    (f"$env:GH_REPO='{REPO}'; gh pr list", None),
+    (f"GH_REPO={REPO} gh pr list", None),
+    (f"gh pr list --json number -q '.[] | .number' -R {REPO}", None),
+    (f'gh pr create --title "A & B; c" -R {REPO}', None),
+    (
+        f"gh pr create --body \"$(cat <<'EOF'\nSummary\ngh run list\nEOF\n)\" -R {REPO}",
+        None,
+    ),
+    (f"gh pr create \\\n  -R {REPO} \\\n  --draft", None),
+    (f"gh pr create `\n  --repo {REPO} `\n  --draft", None),
+    (f"gh pr view https://github.com/{REPO}/pull/3", None),
+    (f"gh repo view {REPO}", None),
+    (f"gh api repos/{REPO}/pulls", None),
+    ("gh auth status", None),
+    ("gh pr list --help", None),
+    ('git commit -m "Deny gh pr list without a repo flag"', None),
+    ("git commit -F - <<'EOF'\nGuard: gh issue view now needs a repo\nEOF", None),
+    # installs: ask
+    ("make install", "ask"),
+    ("make -C . install-plugin", "ask"),
+    ("mise exec -- make install-scripts", "ask"),
+    ("python tools/install.py scripts", "ask"),
+    (r"cd x && .picard/venv/Scripts/python.exe -I tools\install.py all", "ask"),
+    ("python3.12 -X utf8 tools/install.py all", "ask"),
+    ("cd tools && python install.py all", "ask"),
+    ("python -m tools.install all", "ask"),
+    ("uv run tools/install.py", "ask"),
+    ("uv run --with rich python -I tools/install.py", "ask"),
+    # not installs: allow
+    ("make test", None),
+    ('make test PYTEST_ARGS="-k install"', None),
+    ("python tools/run_tests.py tests/test_install.py", None),
+    ("uv run ruff check tools/install.py", None),
+    ("uv run ruff check tools/run_tests.py tools/install.py", None),
+    ("git diff tools/run_tests.py tools/install.py", None),
+    ("cat Makefile | grep install", None),
+    ('git commit -m "make sure we install the hook"', None),
+]
+
+
+@pytest.mark.parametrize("tool", ["Bash", "PowerShell"])
+@pytest.mark.parametrize(("command", "expected"), GUARD_CASES)
+def test_guards_commands(tool, command, expected):
+    output = run_guard(tool, {"command": command})
+    decision = output["permissionDecision"] if output else None
+    assert decision == expected
+    if output:
+        assert output["hookEventName"] == "PreToolUse"
+        assert output["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("tool", ["Edit", "Write", "MultiEdit", "NotebookEdit"])
+@pytest.mark.parametrize("folder", ["src", "venv", "new"])
+def test_guards_deny_edits_inside_picard(tool, folder):
+    key = "notebook_path" if tool == "NotebookEdit" else "file_path"
+    path = ROOT / ".picard" / folder / "x.py"
+    output = run_guard(tool, {key: str(path)})
+    assert output and output["permissionDecision"] == "deny"
+
+
+def test_guards_deny_edits_inside_a_worktrees_picard(bare_repo):
+    path = bare_repo / "tools" / ".." / ".picard" / "src" / "x.py"
+    output = run_guard("Write", {"file_path": str(path), "content": ""})
+    assert output and output["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ROOT / "tools" / "install.py",
+        ROOT / "tagger-scripts" / "01-remove-hyphens-in-title.ptsp",
+        ROOT / ".picard.bak" / "x.py",
+        Path(tempfile.gettempdir()) / ".picard" / "x.py",  # not this repo's .picard
+    ],
+)
+def test_guards_allow_other_edits(path):
+    assert run_guard("Edit", {"file_path": str(path)}) is None
+
+
+@pytest.mark.parametrize(
+    "stdin",
+    ["not json", "[]", "{}", '{"tool_input": null}', '{"tool_input": "gh pr list"}'],
+)
+def test_guards_ignore_bad_input(stdin):
+    result = run_hook("guards.py", stdin)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
