@@ -1,9 +1,10 @@
 """PreToolUse hook: the CLAUDE.md gotchas about .picard/ and installs, which permission rules miss.
 
 - gh run in .picard/src targets the upstream metabrainz/picard clone. Ask before a gh command
-  when the shell's cwd is inside .picard/ or the command mentions .picard, unless it passes -R.
-- make install*, tools/install.py and `picard-cli plugins install` write the user's real Picard
-  config: ask first.
+  when the shell's cwd is inside .picard/ or the command mentions .picard, unless that command
+  passes -R or names this repo.
+- make install* (and a bare make: install is the first target), tools/install.py and
+  `picard-cli plugins install` write the user's real Picard config: ask first.
 - Deny Edit/Write/MultiEdit/NotebookEdit inside .picard/, the upstream Picard clone and test
   venv that tools/run_tests.py manages. Shell commands that write there are not caught.
 
@@ -14,28 +15,37 @@ ask too.
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 GH = re.compile(r"\bgh(?:\.exe)?\s", re.IGNORECASE)
-GH_REPO_FLAG = re.compile(r"\s(?:-R|--repo)")
-PICARD_DIR = re.compile(r"\.picard(?![\w.-])", re.IGNORECASE)
-INSTALLER = re.compile(
-    r"\binstall\.py\b|tools\.install\b|\bplugins\s+install\b", re.IGNORECASE
-)
-MAKE = re.compile(r"\bmake(?:\.exe)?\s", re.IGNORECASE)
-INSTALL_TARGET = re.compile(r"\sinstall[\w-]*(?![\w.])", re.IGNORECASE)
-QUOTED = re.compile(r"""'[^']*'|"[^"]*\"""")
+GH_REPO_FLAG = re.compile(r"\s(?:-R|--repo)(?![a-z])")
+PICARD_DIR = re.compile(r"(?<![\w.])\.picard(?![\w.-])", re.IGNORECASE)
+INSTALLER = re.compile(r"\binstall\.py\b|tools\.install\b", re.IGNORECASE)
+PLUGINS = re.compile(r"\bplugins\s", re.IGNORECASE)
+PLUGINS_INSTALL = re.compile(r"\sinstall\b", re.IGNORECASE)
+MAKE = re.compile(r"\bg?make(?:\.exe)?(?:\s|$)", re.IGNORECASE)
+MAKE_VALUE_FLAGS = {"-C", "-f", "-I", "-o", "-W"}
+REDIRECT = re.compile(r"\d*[<>]+")
+MSYS_DRIVE = re.compile(r"^/([a-zA-Z])/")
+# A quote opens only after a space, `=` or `(`: the apostrophe in `it's` doesn't.
+QUOTED = re.compile(r"""(?<![^\s=(])(?:'[^']*'|"[^"]*")""")
+HERESTRING_OPEN = re.compile(r"""@(['"])\r?\n""")
 QUOTED_EXE = re.compile(r"(?:^|[/\\])(gh|make)(?:\.exe)?$", re.IGNORECASE)
 CONTINUATION = re.compile(r"[\\`]\r?\n")
-SEPARATOR = re.compile(r"[;&|()\n]")
+# Not parens: `make -j$(nproc) install` and `gh pr view $(...) -R x` stay one segment.
+SEPARATOR = re.compile(r"[;&|\n]")
+REPO = "robrich82/picards-scripts-plugins"
 
-# The ask reasons are shown to the user in the permission prompt, not to Claude.
+# Shown to the user in the permission prompt (to Claude only when a -p run auto-denies it).
 GH_REASON = (
-    "gh run in .picard/ acts on the upstream metabrainz/picard clone, not this repo."
+    "This gh command runs in or mentions .picard/, a metabrainz/picard clone: "
+    "without -R it may act on upstream Picard, not this repo."
 )
 INSTALL_REASON = "Installs into your real Picard config and plugin folder, or mentions the installer."
+# Shown to Claude.
 PICARD_REASON = (
     ".picard/ holds the upstream Picard clone and test venv that tools/run_tests.py "
     "builds; edits there change what the tests run against. Edit the repo's own files."
@@ -59,9 +69,26 @@ def repo_root(path):
 
 def inside_picard(file_path):
     """True if file_path is in, or is, a .picard/ folder at a repo root."""
+    if os.name == "nt":
+        file_path = MSYS_DRIVE.sub(r"\1:/", file_path)  # /c/Users/... from Git Bash
     path = Path(file_path).resolve()
     root = repo_root(path)
     return root is not None and path.is_relative_to(root / ".picard")
+
+
+def strip_herestrings(text):
+    """Drop PowerShell @'...'@ bodies. A scan, not a lazy regex, which is quadratic unclosed."""
+    parts, start = [], 0
+    while True:
+        opener = HERESTRING_OPEN.search(text, start)
+        if not opener:
+            break
+        end = text.find(f"\n{opener.group(1)}@", opener.end() - 1)
+        if end < 0:
+            break
+        parts += [text[start : opener.start()], "''"]
+        start = end + 3
+    return "".join(parts) + text[start:]
 
 
 def unquote(match):
@@ -73,21 +100,51 @@ def unquote(match):
     return text if text and not any(c.isspace() for c in text) else "''"
 
 
+def make_targets(args):
+    """make's targets: not flags, flag values, VAR=value, $(...) or redirections."""
+    targets, skip = [], False
+    for word in args:
+        if skip:
+            skip = False
+            continue
+        redirect = REDIRECT.search(word)
+        if redirect and redirect.group() == word:
+            skip = True  # `> file`: the next word is the file
+            continue
+        if redirect:
+            word = word[: redirect.start()]  # `install>log`, or nothing for `>log`
+        if word in MAKE_VALUE_FLAGS:
+            skip = True
+        elif word and word[0] not in "-$" and "=" not in word and not word.isdigit():
+            targets.append(word)
+    return targets
+
+
 def installs(segment):
+    if INSTALLER.search(segment):
+        return True
+    plugins = PLUGINS.search(segment)
+    if plugins and PLUGINS_INSTALL.search(segment, plugins.end() - 1):
+        return True
     make = MAKE.search(segment)
-    # Search from the space after `make`, so an install target can't match earlier text.
-    target = make and INSTALL_TARGET.search(segment, make.end() - 1)
-    return bool(INSTALLER.search(segment) or target)
+    if not make:
+        return False
+    # The Makefile's first target is install, so a bare `make` installs too.
+    targets = make_targets(segment[make.end() :].split())
+    return not targets or any(t.lower().startswith("install") for t in targets)
 
 
 def check_command(command, cwd):
-    text = QUOTED.sub(unquote, CONTINUATION.sub(" ", command))
-    near_picard = bool(PICARD_DIR.search(text)) or (
+    joined = CONTINUATION.sub(" ", command)
+    # Raw text, so a quoted path like "$ROOT/.picard/src" counts.
+    near_picard = bool(PICARD_DIR.search(joined)) or (
         isinstance(cwd, str) and bool(cwd) and inside_picard(cwd)
     )
+    text = QUOTED.sub(unquote, strip_herestrings(joined))
     reasons = []
     for segment in SEPARATOR.split(text):
-        if near_picard and GH.search(segment) and not GH_REPO_FLAG.search(segment):
+        names_repo = GH_REPO_FLAG.search(segment) or REPO in segment.lower()
+        if near_picard and GH.search(segment) and not names_repo:
             reasons.append(GH_REASON)
         if installs(segment):
             reasons.append(INSTALL_REASON)

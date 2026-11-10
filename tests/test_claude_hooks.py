@@ -321,6 +321,11 @@ GH_CASES = [
     ("cd .picard/src && gh pr view 10", ROOT, "ask"),
     (r"cd .picard\src; gh issue list", ROOT, "ask"),
     ("cd .PICARD/src && gh pr view 10", ROOT, "ask"),
+    ('cd "$(git rev-parse --show-toplevel)/.picard/src" && gh pr list', ROOT, "ask"),
+    ("gh pr list -Recurse", PICARD_SRC, "ask"),
+    # an apostrophe that isn't a quote must not hide the gh call after it
+    ("cat <<EOF\nit's done\nEOF\ngh pr view 10 --jq '.body'", PICARD_SRC, "ask"),
+    ("git commit -m @'\nDon't x\n'@\ngh pr list --jq '.x'", PICARD_SRC, "ask"),
     # gh with -R, gh elsewhere, or no gh: allow
     (f"gh pr view 10 -R {REPO}", PICARD_SRC, None),
     (f"gh pr view 10 --repo={REPO}", PICARD_SRC, None),
@@ -331,12 +336,23 @@ GH_CASES = [
     ("gh pr list", Path(tempfile.gettempdir()), None),
     ("ls .picard.bak && gh pr list", ROOT, None),
     ("gh pr list", None, None),  # no cwd in the hook input
+    (f"gh pr view $(git branch --show-current) -R {REPO}", PICARD_SRC, None),
+    (f"gh pr view 10 --repo {REPO}", PICARD_SRC, None),
+    (f"gh api repos/{REPO}/pulls", PICARD_SRC, None),
+    ("flatpak run org.musicbrainz.Picard; gh pr list", ROOT, None),
 ]
 
 
 @pytest.mark.parametrize(("command", "cwd", "expected"), GH_CASES)
 def test_guards_gh(command, cwd, expected):
     assert decision_for(command, cwd) == expected
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash drive paths are Windows-only")
+def test_guards_gh_with_a_git_bash_cwd():
+    drive, rest = str(PICARD_SRC).split(":", 1)
+    cwd = f"/{drive.lower()}{rest.replace(os.sep, '/')}"
+    assert decision_for("gh pr list", cwd) == "ask"
 
 
 def test_guards_gh_in_a_worktrees_picard(bare_repo):
@@ -347,6 +363,14 @@ INSTALL_CASES = [
     # installs: ask
     ("make install", "ask"),
     ("make INSTALL", "ask"),
+    ("make", "ask"),  # install is the Makefile's first target
+    ("make -j2", "ask"),
+    ("make PYTHON=py", "ask"),
+    ("make -j$(nproc) install", "ask"),
+    ("make -C $(git rev-parse --show-toplevel) install", "ask"),
+    ("make PYTHON=$(which python3) install-plugin", "ask"),
+    ("gmake install", "ask"),
+    ("picard-cli plugins --locale en install C:/x", "ask"),
     ("make -C . install-plugin", "ask"),
     ("make.exe install", "ask"),
     ("mingw32-make install", "ask"),
@@ -374,6 +398,10 @@ INSTALL_CASES = [
     ('make test PYTEST_ARGS="-k install"', None),
     ("make test > install.log", None),
     ("make uninstall", None),
+    ("make test >> install.log", None),
+    ("make help | grep install", None),
+    ("make PREFIX=/opt/install all", None),
+    ("make $(MAKEFLAGS) test", None),
     ("make test && uv pip install ruff", None),
     ("cmake --install build", None),
     ("python tools/run_tests.py tests/test_install.py", None),
@@ -389,11 +417,15 @@ def test_guards_installs(command, expected):
     assert decision_for(command) == expected
 
 
-def test_guards_stay_fast_on_a_long_command():
-    """A regex that backtracks per `make` would run past the hook's 10s timeout."""
-    command = "echo " + "make x " * 20000
+@pytest.mark.parametrize(
+    "command",
+    ["echo " + "make x " * 20000, "@'\n" * 50000, "x '" * 50000, "$(" * 50000],
+    ids=["make", "herestring", "quote", "paren"],
+)
+def test_guards_stay_fast_on_a_long_command(command):
+    """A regex that backtracks per opener would run past the hook's 10s timeout."""
     start = time.monotonic()
-    assert run_guard("Bash", {"command": command}) is None
+    run_guard("Bash", {"command": command})
     assert time.monotonic() - start < 5
 
 
