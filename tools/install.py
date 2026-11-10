@@ -88,7 +88,7 @@ def install_plugin():
         )  # drops files the new version no longer has; handles read-only files
     shutil.copytree(PLUGIN, dest, ignore=shutil.ignore_patterns("__pycache__"))
     # Forward slashes: picard-cli looks a path with no / up as a registry ID.
-    # --reinstall on a repeat: without it picard-cli skips the path and keeps the old manifest's metadata.
+    # --reinstall on a repeat: without it picard-cli skips the path with a message that reads as a failure.
     # Not on a first install, where it would also skip picard-cli's check for a plugin with the same UUID.
     # PYTHONIOENCODING: on Windows its output otherwise ends in a UnicodeEncodeError traceback.
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
