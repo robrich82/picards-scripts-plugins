@@ -11,11 +11,11 @@
   "platformAutomerge": false,
   "customManagers": [
     {
-      "description": "The Picard release the tests run against, and the README lines that name it.",
+      "description": "The Picard release the tests run against, and the README lines that name it. tests/test_renovate.py checks these still match.",
       "customType": "regex",
       "managerFilePatterns": ["/^tools/run_tests\\.py$/", "/^README\\.md$/"],
       "matchStrings": [
-        "PICARD_REF = 'release-(?<currentValue>[^']+)'",
+        "PICARD_REF = [\"']release-(?<currentValue>[^\"']+)[\"']",
         "tested against Picard (?<currentValue>\\d+(?:\\.\\d+)+)",
         "`release-(?<currentValue>\\d+(?:\\.\\d+)+)`"
       ],

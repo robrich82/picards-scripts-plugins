@@ -2,12 +2,18 @@
 
 import importlib.util
 import os
+import re
 import shutil
 import stat
 import sys
 from pathlib import Path
 
 import pytest
+from picard import PICARD_VERSION
+
+# Read from the Picard under test, so a PICARD_REF bump needs no edits here.
+CURRENT = PICARD_VERSION.short_str()
+NEWER = f"{PICARD_VERSION.major + 1}.0.0"
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,7 +38,7 @@ TITLES = [
 ]
 
 
-def write_config(path, scripts, version="3.0.4", profiles=None):
+def write_config(path, scripts, version=CURRENT, profiles=None):
     import picard.options  # noqa: F401
     from picard.config import Config
 
@@ -231,7 +237,7 @@ def test_imported_suffix_title_refused(tmp_path, monkeypatch):
 
 
 def test_newer_config_refused_untouched(ini):
-    write_config(ini, [], version="3.1.0")
+    write_config(ini, [], version=NEWER)
     original = ini.read_bytes()
     with pytest.raises(SystemExit, match="newer"):
         config_scripts.main()
@@ -241,7 +247,7 @@ def test_newer_config_refused_untouched(ini):
 def test_older_config_refused_untouched(ini):
     write_config(ini, [], version="2.13.3")
     original = ini.read_bytes()
-    with pytest.raises(SystemExit, match="start Picard 3.0.4 once"):
+    with pytest.raises(SystemExit, match=f"start Picard {re.escape(CURRENT)} once"):
         config_scripts.main()
     assert ini.read_bytes() == original and not list(ini.parent.glob("*.bak-*"))
 
@@ -283,8 +289,8 @@ def test_config_file_prefers_the_versioned_ini(tmp_path, monkeypatch):
     plain = tmp_path / "MusicBrainz" / "Picard.ini"
     assert config_scripts.config_file() == plain
     plain.parent.mkdir()
-    (plain.parent / "Picard-3.0.4.ini").write_text("")
-    assert config_scripts.config_file() == plain.parent / "Picard-3.0.4.ini"
+    (plain.parent / f"Picard-{CURRENT}.ini").write_text("")
+    assert config_scripts.config_file() == plain.parent / f"Picard-{CURRENT}.ini"
 
 
 def test_missing_config_refused(ini):
@@ -295,7 +301,7 @@ def test_missing_config_refused(ini):
 def test_install_runs_the_helper_in_the_venv(ini, monkeypatch):
     write_config(ini, [])
     monkeypatch.setattr(install, "picard_running", lambda: False)
-    monkeypatch.setattr(install, "installed_picard_version", lambda: "3.0.4")
+    monkeypatch.setattr(install, "installed_picard_version", lambda: CURRENT)
     install.main(["scripts"])
     assert [name for name, _ in names(read_config(ini))] == TITLES
 
@@ -304,8 +310,8 @@ def test_install_refuses_other_picard_version(ini, monkeypatch):
     write_config(ini, [])
     original = ini.read_bytes()
     monkeypatch.setattr(install, "picard_running", lambda: False)
-    monkeypatch.setattr(install, "installed_picard_version", lambda: "3.1.0")
-    with pytest.raises(SystemExit, match="Installed Picard is 3.1.0"):
+    monkeypatch.setattr(install, "installed_picard_version", lambda: NEWER)
+    with pytest.raises(SystemExit, match=f"Installed Picard is {re.escape(NEWER)}"):
         install.main(["scripts"])
     assert ini.read_bytes() == original
 
