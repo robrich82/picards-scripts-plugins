@@ -210,12 +210,13 @@ def settings_hooks():
     ]
 
 
-def run_settings_command(hook, project_dir, stdin):
+def run_settings_command(hook, project_dir, stdin, cwd=None):
     # The command as Claude Code runs it, through the shell, with `python` pinned to this one.
     command = hook["command"].replace("python ", f'"{sys.executable}" ', 1)
     return subprocess.run(
         command,
         shell=True,
+        cwd=cwd,
         input=stdin,
         capture_output=True,
         encoding="utf-8",
@@ -245,6 +246,16 @@ def test_settings_commands_run_the_hooks(in_repo):
     result = run_settings_command(hook, ROOT, stdin)
     assert result.returncode == 2
     assert "Unknown function" in result.stderr
+
+
+def test_settings_commands_ignore_modules_in_the_working_directory(tmp_path):
+    """Without -I, a json.py wherever Claude is working would replace the stdlib one."""
+    for module in ("json", "runpy"):
+        (tmp_path / f"{module}.py").write_text("raise SystemExit(2)\n")
+    stdin = json.dumps({"tool_input": {"file_path": str(SCRIPT_FILES[0])}})
+    for _, _, hook in settings_hooks():
+        result = run_settings_command(hook, ROOT, stdin, cwd=tmp_path)
+        assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
 def test_settings_commands_do_nothing_when_the_hook_file_is_missing(tmp_path):

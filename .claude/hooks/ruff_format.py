@@ -69,7 +69,7 @@ def main():
         )
     try:
         # uv and Ruff both exit 2 on failure, so check Ruff starts before blaming the file.
-        started = ruff(uv, root, "--version", timeout=45)
+        started = ruff(uv, root, "--version", timeout=35)
         if started.returncode:
             return note(
                 f"{path.name} was not formatted: Ruff didn't start ({last_line(started)})."
