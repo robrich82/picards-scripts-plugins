@@ -6,12 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_ptsp.py\"",
+            "command": "python -c \"import os, runpy; p = os.path.join(os.environ.get('CLAUDE_PROJECT_DIR', ''), '.claude', 'hooks', 'check_ptsp.py'); os.path.isfile(p) and runpy.run_path(p, run_name='__main__')\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_format.py\"",
+            "command": "python -c \"import os, runpy; p = os.path.join(os.environ.get('CLAUDE_PROJECT_DIR', ''), '.claude', 'hooks', 'ruff_format.py'); os.path.isfile(p) and runpy.run_path(p, run_name='__main__')\"",
             "timeout": 60
           }
         ]

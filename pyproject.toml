@@ -13,7 +13,7 @@ dev = [
 exclude-newer = "1 day"
 
 [tool.ruff]
-# These run on whatever Python is installed, before the 3.12 venv exists.
+# These and the Claude hooks run on whatever Python is installed, before the 3.12 venv exists.
 per-file-target-version = { "tools/run_tests.py" = "py39", "tools/install.py" = "py39", ".claude/hooks/*.py" = "py39" }
 
 [tool.ruff.lint]
