@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PICARD_REF = "release-3.0.4"
+PICARD_REF = "release-3.0.5"
 PICARD_REPO = "https://github.com/metabrainz/picard.git"
 PYTHON = "3.12"
 
