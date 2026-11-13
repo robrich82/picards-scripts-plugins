@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.13"
 [dependency-groups]
 dev = [
     "ruff==0.17.4",
-    "ty==0.0.100",
+    "ty==0.0.101",
 ]
 
 [tool.uv]
