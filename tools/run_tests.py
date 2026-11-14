@@ -1,7 +1,7 @@
 """Fetch Picard's source, build a test venv with uv, and run pytest against it.
 
 Usage: python tools/run_tests.py [--coverage] [pytest args...]
---coverage also prints a coverage report and writes .picard/coverage.xml.
+--coverage also prints a coverage report, and fails below [tool.coverage.report] fail_under.
 Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/.
 """
 
@@ -196,7 +196,7 @@ def main():
     # Erase first, so combine doesn't merge data files an earlier run left behind.
     venv_run("coverage", "erase")
     tests = venv_run("coverage", "run", "-m", "pytest", *args)
-    for step in (["combine", "--quiet"], ["xml", "--quiet"], ["report"]):
+    for step in (["combine", "--quiet"], ["report"]):
         failed = venv_run("coverage", *step)
         if failed:
             return tests or failed

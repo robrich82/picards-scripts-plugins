@@ -57,7 +57,7 @@ jobs:
           cache-dependency-glob: |
             uv.lock
             tools/run_tests.py
-      - run: python3 tools/run_tests.py
+      - run: python3 tools/run_tests.py --coverage # fails below [tool.coverage.report] fail_under
       # After the tests: ty reads the venv and Picard source they put in .picard/. Runs even when a test fails.
       - if: ${{ !cancelled() }}
         run: uv sync

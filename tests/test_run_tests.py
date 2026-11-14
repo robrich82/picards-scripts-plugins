@@ -328,6 +328,7 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
         ({"pytest": 1}, 1),  # failing tests still get a report
         ({"pytest": 1, "combine": 4}, 1),  # the test failure is the one to report
         ({"combine": 4}, 4),  # a failed report step fails the run
+        ({"report": 2}, 2),  # coverage under fail_under
     ],
 )
 @pytest.mark.parametrize(
@@ -352,10 +353,9 @@ def test_main_coverage_runs_pytest_under_coverage_then_reports(
         ["coverage", "erase"],
         ["coverage", "run", "-m", "pytest", "-k", "CV"],
         ["coverage", "combine", "--quiet"],
-        ["coverage", "xml", "--quiet"],
         ["coverage", "report"],
     ]
-    assert seen == steps[: 3 if "combine" in codes else 5]
+    assert seen == steps[: 3 if "combine" in codes else 4]
 
 
 def test_coverage_measures_hook_subprocesses_by_repo_path(tmp_path):
@@ -372,21 +372,21 @@ def test_coverage_measures_hook_subprocesses_by_repo_path(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith("COVERAGE_")}
     env["COVERAGE_FILE"] = str(tmp_path / ".coverage")
 
-    def coverage(*args):
-        subprocess.run(
+    def coverage(*args, check=True):
+        return subprocess.run(
             [sys.executable, "-m", "coverage", *args],
             cwd=run_tests.ROOT,
             env=env,
             capture_output=True,
-            check=True,
+            encoding="utf-8",
+            check=check,
         )
 
     coverage("run", str(launcher))
     coverage("combine", "--quiet")
-    coverage("json", "--quiet", "-o", str(tmp_path / "coverage.json"))
-    files = json.loads((tmp_path / "coverage.json").read_text(encoding="utf-8"))[
-        "files"
-    ]
+    json_path = tmp_path / "coverage.json"
+    coverage("json", "--quiet", "--fail-under=0", "-o", str(json_path))
+    files = json.loads(json_path.read_text(encoding="utf-8"))["files"]
     covered = {
         name.replace("\\", "/"): data["summary"]["covered_lines"]
         for name, data in files.items()
@@ -394,6 +394,9 @@ def test_coverage_measures_hook_subprocesses_by_repo_path(tmp_path):
     assert covered[".claude/hooks/guards.py"] > 0
     assert covered["tools/install.py"] == 0
     assert not [name for name in covered if name.startswith(("tests/", ".picard/"))]
+    report = coverage("report", check=False)  # CI's gate: under fail_under fails
+    assert report.returncode == 2
+    assert "less than fail-under=100" in report.stdout + report.stderr
 
 
 def test_python_is_requires_python():

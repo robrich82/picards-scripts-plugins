@@ -33,11 +33,9 @@ python = ".picard/venv"
 extra-paths = [".picard/src", ".picard/src/test", "tools"]
 
 [tool.coverage.run]
-# source_dirs, not source, with relative_files: coverage.xml names files by repo path, which GitHub matches.
 source_dirs = ["tools", "plugins", ".claude/hooks"]
 patch = ["subprocess"]  # the hook tests run .claude/hooks/*.py as subprocesses
 branch = true
-relative_files = true
 data_file = ".picard/coverage/.coverage"
 
 [tool.coverage.report]
@@ -45,6 +43,4 @@ exclude_also = ['if __name__ == "__main__":']
 include_namespace_packages = true  # list never-run files in folders without __init__.py
 show_missing = true
 skip_covered = true
-
-[tool.coverage.xml]
-output = ".picard/coverage.xml"
+fail_under = 100
