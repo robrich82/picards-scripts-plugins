@@ -6,6 +6,7 @@ Needs git and uv on PATH. The Picard source and the venv it builds live in git-i
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -14,12 +15,30 @@ from pathlib import Path
 
 PICARD_REF = "release-3.0.5"
 PICARD_REPO = "https://github.com/metabrainz/picard.git"
-PYTHON = "3.12"
 
 ROOT = Path(__file__).resolve().parent.parent
 PICARD_DIR = ROOT / ".picard"
 PICARD_SRC = PICARD_DIR / "src"
 VENV = PICARD_DIR / "venv"  # not .venv, which uv sync owns and would strip
+
+
+def pinned_python(pyproject=ROOT / "pyproject.toml"):
+    """The X.Y that requires-python pins as ">=X.Y,<X.(Y+1)". By regex, since tomllib needs 3.11."""
+    match = re.search(
+        r"""^requires-python\s*=\s*["']>=(\d+)\.(\d+),<(\d+)\.(\d+)["']""",
+        pyproject.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match:
+        major, minor, next_major, next_minor = map(int, match.groups())
+        if (next_major, next_minor) == (major, minor + 1):
+            return f"{major}.{minor}"
+    sys.exit(
+        f'{pyproject}: requires-python must be ">=X.Y,<X.(Y+1)", one Python for the test venv'
+    )
+
+
+PYTHON = pinned_python()
 
 
 def venv_python(venv):

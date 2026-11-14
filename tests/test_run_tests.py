@@ -282,9 +282,35 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
     }
 
 
-def test_python_matches_requires_python():
-    """uv sync picks the dev tools' interpreter from requires-python; the test venv uses PYTHON."""
+def test_python_is_requires_python():
+    """The test venv and uv sync's dev tools both take their Python from requires-python."""
     with open(run_tests.ROOT / "pyproject.toml", "rb") as f:
         requires = tomllib.load(f)["project"]["requires-python"]
-    major, minor = run_tests.PYTHON.split(".")[:2]
+    major, minor = run_tests.PYTHON.split(".")
     assert requires == f">={major}.{minor},<{major}.{int(minor) + 1}"
+
+
+@pytest.mark.parametrize(
+    "line", ['requires-python = ">=3.14,<3.15"', "requires-python='>=3.14,<3.15'"]
+)
+def test_pinned_python(tmp_path, line):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(f"[project]\n{line}\n")
+    assert run_tests.pinned_python(pyproject) == "3.14"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "",  # missing
+        'requires-python = ">=3.12"',  # uv venv would take any newer Python found first
+        'requires-python = ">=3.12,<3.14"',
+        'requires-python = " >=3.12,<3.13"',
+        'requires-python = "==3.12.*"',
+    ],
+)
+def test_pinned_python_rejects_anything_but_one_minor(tmp_path, line):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(f"[project]\n{line}\n")
+    with pytest.raises(SystemExit, match="requires-python must be"):
+        run_tests.pinned_python(pyproject)
