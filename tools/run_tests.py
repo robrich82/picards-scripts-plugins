@@ -6,6 +6,7 @@ Needs git and uv on PATH. The Picard source and the venv it builds live in git-i
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -14,12 +15,26 @@ from pathlib import Path
 
 PICARD_REF = "release-3.0.5"
 PICARD_REPO = "https://github.com/metabrainz/picard.git"
-PYTHON = "3.12"
 
 ROOT = Path(__file__).resolve().parent.parent
 PICARD_DIR = ROOT / ".picard"
 PICARD_SRC = PICARD_DIR / "src"
 VENV = PICARD_DIR / "venv"  # not .venv, which uv sync owns and would strip
+
+
+def requires_python(pyproject=ROOT / "pyproject.toml"):
+    """pyproject.toml's requires-python, which uv venv takes as is. A regex: tomllib needs 3.11."""
+    match = re.search(
+        r"""^requires-python\s*=\s*["']([^"']+)["']""",
+        pyproject.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match is None:
+        sys.exit(f"no requires-python in {pyproject}")
+    return match.group(1)
+
+
+PYTHON = requires_python()
 
 
 def venv_python(venv):

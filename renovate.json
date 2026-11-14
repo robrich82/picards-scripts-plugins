@@ -27,7 +27,7 @@
   ],
   "packageRules": [
     {
-      "description": "requires-python follows PYTHON in tools/run_tests.py, the Python the tests run Picard on.",
+      "description": "requires-python is the Python tools/run_tests.py runs Picard on, so it follows Picard, not Python releases.",
       "matchDepTypes": ["requires-python"],
       "enabled": false
     },
