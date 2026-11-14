@@ -27,7 +27,7 @@
   ],
   "packageRules": [
     {
-      "description": "requires-python is the Python tools/run_tests.py runs Picard on, so it follows Picard, not Python releases.",
+      "description": "requires-python pins the test venv's Python (see tools/run_tests.py); bump it by hand, not with Renovate.",
       "matchDepTypes": ["requires-python"],
       "enabled": false
     },

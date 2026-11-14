@@ -285,17 +285,32 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
 def test_python_is_requires_python():
     """The test venv and uv sync's dev tools both take their Python from requires-python."""
     with open(run_tests.ROOT / "pyproject.toml", "rb") as f:
-        assert run_tests.PYTHON == tomllib.load(f)["project"]["requires-python"]
+        requires = tomllib.load(f)["project"]["requires-python"]
+    major, minor = run_tests.PYTHON.split(".")
+    assert requires == f">={major}.{minor},<{major}.{int(minor) + 1}"
 
 
-def test_requires_python_reads_single_quotes(tmp_path):
+@pytest.mark.parametrize(
+    "line", ['requires-python = ">=3.14,<3.15"', "requires-python='>=3.14,<3.15'"]
+)
+def test_pinned_python(tmp_path, line):
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text("[project]\nrequires-python = '>=3.14,<3.15'\n")
-    assert run_tests.requires_python(pyproject) == ">=3.14,<3.15"
+    pyproject.write_text(f"[project]\n{line}\n")
+    assert run_tests.pinned_python(pyproject) == "3.14"
 
 
-def test_requires_python_missing_exits(tmp_path):
+@pytest.mark.parametrize(
+    "line",
+    [
+        "",  # missing
+        'requires-python = ">=3.12"',  # uv venv would take any newer Python found first
+        'requires-python = ">=3.12,<3.14"',
+        'requires-python = " >=3.12,<3.13"',
+        'requires-python = "==3.12.*"',
+    ],
+)
+def test_pinned_python_rejects_anything_but_one_minor(tmp_path, line):
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text('[tool.ruff]\ntarget-version = "py312"\n')
-    with pytest.raises(SystemExit, match="no requires-python"):
-        run_tests.requires_python(pyproject)
+    pyproject.write_text(f"[project]\n{line}\n")
+    with pytest.raises(SystemExit, match="requires-python must be"):
+        run_tests.pinned_python(pyproject)

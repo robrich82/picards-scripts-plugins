@@ -22,19 +22,23 @@ PICARD_SRC = PICARD_DIR / "src"
 VENV = PICARD_DIR / "venv"  # not .venv, which uv sync owns and would strip
 
 
-def requires_python(pyproject=ROOT / "pyproject.toml"):
-    """pyproject.toml's requires-python, which uv venv takes as is. A regex: tomllib needs 3.11."""
+def pinned_python(pyproject=ROOT / "pyproject.toml"):
+    """The X.Y that requires-python pins as ">=X.Y,<X.(Y+1)". By regex, since tomllib needs 3.11."""
     match = re.search(
-        r"""^requires-python\s*=\s*["']([^"']+)["']""",
+        r"""^requires-python\s*=\s*["']>=(\d+)\.(\d+),<(\d+)\.(\d+)["']""",
         pyproject.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
-    if match is None:
-        sys.exit(f"no requires-python in {pyproject}")
-    return match.group(1)
+    if match:
+        major, minor, next_major, next_minor = map(int, match.groups())
+        if (next_major, next_minor) == (major, minor + 1):
+            return f"{major}.{minor}"
+    sys.exit(
+        f'{pyproject}: requires-python must be ">=X.Y,<X.(Y+1)", one Python for the test venv'
+    )
 
 
-PYTHON = requires_python()
+PYTHON = pinned_python()
 
 
 def venv_python(venv):
