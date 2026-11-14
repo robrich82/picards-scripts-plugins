@@ -111,9 +111,28 @@ def test_install_uses_picard_pins_and_cooldown(tmp_path, picard_src, commands):
             str(picard_src / "requirements.txt"),
             "-c",
             str(picard_src / "requirements-build.txt"),
+            "-r",
+            str(venv / "coverage-requirements.txt"),
             "pytest",
         ],
     ]
+    assert (venv / "coverage-requirements.txt").read_text(
+        encoding="utf-8"
+    ) == run_tests.coverage_requirements()
+
+
+def test_coverage_requirements_need_uv(monkeypatch):
+    monkeypatch.setattr(run_tests.shutil, "which", lambda name: None)
+    with pytest.raises(SystemExit, match="uv not found"):
+        run_tests.coverage_requirements()
+
+
+def test_coverage_requirements_are_hashed_pins_from_uv_lock():
+    with open(run_tests.ROOT / "uv.lock", "rb") as f:
+        locked = {p["name"]: p["version"] for p in tomllib.load(f)["package"]}
+    exported = run_tests.coverage_requirements()
+    assert exported.startswith(f"coverage=={locked['coverage']} \\")
+    assert "--hash=sha256:" in exported
 
 
 @pytest.mark.parametrize(
@@ -121,6 +140,7 @@ def test_install_uses_picard_pins_and_cooldown(tmp_path, picard_src, commands):
     [
         "python",
         "picard ref",
+        "coverage pin",
         "requirements",
         "constraints",
         "interpreter gone",
@@ -139,6 +159,8 @@ def test_venv_rebuilt_when_anything_changes(
         monkeypatch.setattr(run_tests, "PYTHON", "3.13")
     elif change == "picard ref":
         monkeypatch.setattr(run_tests, "PICARD_REF", "release-9")
+    elif change == "coverage pin":
+        monkeypatch.setattr(run_tests, "coverage_requirements", lambda: "coverage==9\n")
     elif change == "interpreter gone":
         run_tests.venv_python(venv).unlink()
     elif change == "base interpreter gone":
@@ -296,6 +318,51 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
         "picard_src": str(run_tests.PICARD_SRC),
         "check": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        ({}, 0),
+        ({"pytest": 1}, 1),  # failing tests still get a report
+        ({"pytest": 1, "combine": 4}, 4),  # a report step failing wins
+    ],
+)
+def test_main_coverage_runs_pytest_under_coverage_then_reports(
+    monkeypatch, codes, expected
+):
+    seen = []
+
+    def fake_subprocess_run(cmd, cwd, env, check):
+        seen.append(cmd[2:])
+        step = "pytest" if cmd[2:5] == ["coverage", "run", "-m"] else cmd[3]
+        return subprocess.CompletedProcess(cmd, codes.get(step, 0))
+
+    monkeypatch.setattr(run_tests, "ensure_picard_source", lambda: None)
+    monkeypatch.setattr(run_tests, "ensure_venv", lambda: None)
+    monkeypatch.setattr(run_tests.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(sys, "argv", ["run_tests.py", "--coverage", "-k", "CV"])
+    assert run_tests.main() == expected
+    steps = [
+        ["coverage", "erase"],
+        ["coverage", "run", "-m", "pytest", "-k", "CV"],
+        ["coverage", "combine", "--quiet"],
+        ["coverage", "xml", "--quiet"],
+        ["coverage", "report"],
+    ]
+    assert seen == steps[: 3 if "combine" in codes else 5]
+
+
+def test_coverage_config_measures_subprocesses():
+    """The hook and install tests run their files as subprocesses."""
+    import coverage
+
+    config = coverage.Coverage(
+        config_file=str(run_tests.ROOT / "pyproject.toml")
+    ).config
+    assert config.patch == ["subprocess"]
+    assert sorted(config.source or []) == [".claude/hooks", "plugins", "tools"]
+    assert config.xml_output == ".picard/coverage.xml"
 
 
 def test_python_is_requires_python():

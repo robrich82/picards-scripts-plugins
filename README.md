@@ -52,6 +52,8 @@ python tools/run_tests.py
 
 The first run downloads Picard's source (`release-3.0.5`) and builds a venv for it on the Python that `requires-python` in `pyproject.toml` pins, both in the git-ignored `.picard/`. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
 
+`python tools/run_tests.py --coverage` also measures line and branch coverage of `tools/`, `plugins/` and `.claude/hooks/`, prints the report and writes `.picard/coverage.xml`. It takes about three times as long. Settings are under `[tool.coverage]` in `pyproject.toml`.
+
 To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py`](tools/run_tests.py).
 
 ## Lint, format and type check

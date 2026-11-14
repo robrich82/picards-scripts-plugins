@@ -6,6 +6,7 @@ Tagger scripts and a plugin for MusicBrainz Picard 3. README.md covers install, 
 
 ```sh
 python tools/run_tests.py [pytest args]   # the only way to run tests: pytest lives in the .picard/venv it builds
+python tools/run_tests.py --coverage      # also measures coverage (slower); writes .picard/coverage.xml
 uv run ruff check && uv run ruff format --check
 uv run ty check                           # needs one run_tests.py first: reads .picard/venv and .picard/src
 ```
