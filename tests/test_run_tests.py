@@ -1,6 +1,7 @@
 """The test runner's rebuild logic, with git and uv replaced by a recorder."""
 
 import importlib.util
+import json
 import os
 import shutil
 import stat
@@ -111,9 +112,28 @@ def test_install_uses_picard_pins_and_cooldown(tmp_path, picard_src, commands):
             str(picard_src / "requirements.txt"),
             "-c",
             str(picard_src / "requirements-build.txt"),
+            "-r",
+            str(venv / "coverage-requirements.txt"),
             "pytest",
         ],
     ]
+    assert (venv / "coverage-requirements.txt").read_text(
+        encoding="utf-8"
+    ) == run_tests.coverage_requirements()
+
+
+def test_coverage_requirements_need_uv(monkeypatch):
+    monkeypatch.setattr(run_tests.shutil, "which", lambda name: None)
+    with pytest.raises(SystemExit, match="uv not found"):
+        run_tests.coverage_requirements()
+
+
+def test_coverage_requirements_are_hashed_pins_from_uv_lock():
+    with open(run_tests.ROOT / "uv.lock", "rb") as f:
+        locked = {p["name"]: p["version"] for p in tomllib.load(f)["package"]}
+    exported = run_tests.coverage_requirements()
+    assert exported.startswith(f"coverage=={locked['coverage']} \\")
+    assert "--hash=sha256:" in exported
 
 
 @pytest.mark.parametrize(
@@ -121,6 +141,7 @@ def test_install_uses_picard_pins_and_cooldown(tmp_path, picard_src, commands):
     [
         "python",
         "picard ref",
+        "coverage pin",
         "requirements",
         "constraints",
         "interpreter gone",
@@ -139,6 +160,8 @@ def test_venv_rebuilt_when_anything_changes(
         monkeypatch.setattr(run_tests, "PYTHON", "3.13")
     elif change == "picard ref":
         monkeypatch.setattr(run_tests, "PICARD_REF", "release-9")
+    elif change == "coverage pin":
+        monkeypatch.setattr(run_tests, "coverage_requirements", lambda: "coverage==9\n")
     elif change == "interpreter gone":
         run_tests.venv_python(venv).unlink()
     elif change == "base interpreter gone":
@@ -296,6 +319,84 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
         "picard_src": str(run_tests.PICARD_SRC),
         "check": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        ({}, 0),
+        ({"pytest": 1}, 1),  # failing tests still get a report
+        ({"pytest": 1, "combine": 4}, 1),  # the test failure is the one to report
+        ({"combine": 4}, 4),  # a failed report step fails the run
+        ({"report": 2}, 2),  # coverage under fail_under
+    ],
+)
+@pytest.mark.parametrize(
+    "argv", [["--coverage", "-k", "CV"], ["-k", "CV", "--coverage"]]
+)
+def test_main_coverage_runs_pytest_under_coverage_then_reports(
+    monkeypatch, codes, expected, argv
+):
+    seen = []
+
+    def fake_subprocess_run(cmd, cwd, env, check):
+        seen.append(cmd[2:])
+        step = "pytest" if cmd[2:5] == ["coverage", "run", "-m"] else cmd[3]
+        return subprocess.CompletedProcess(cmd, codes.get(step, 0))
+
+    monkeypatch.setattr(run_tests, "ensure_picard_source", lambda: None)
+    monkeypatch.setattr(run_tests, "ensure_venv", lambda: None)
+    monkeypatch.setattr(run_tests.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(sys, "argv", ["run_tests.py", *argv])
+    assert run_tests.main() == expected
+    steps = [
+        ["coverage", "erase"],
+        ["coverage", "run", "-m", "pytest", "-k", "CV"],
+        ["coverage", "combine", "--quiet"],
+        ["coverage", "report"],
+    ]
+    assert seen == steps[: 3 if "combine" in codes else 4]
+
+
+def test_coverage_measures_hook_subprocesses_by_repo_path(tmp_path):
+    """The real [tool.coverage] config, run as --coverage runs it: a hook launched as a
+    subprocess from another folder is measured, and never-run files are listed at 0%."""
+    hook = run_tests.ROOT / ".claude" / "hooks" / "guards.py"
+    launcher = tmp_path / "launch.py"
+    launcher.write_text(
+        "import subprocess, sys\n"
+        f"subprocess.run([sys.executable, {str(hook)!r}], input='{{}}', text=True,"
+        f" cwd={str(tmp_path)!r}, check=False)\n"
+    )
+    # Not the COVERAGE_* settings of an outer --coverage run measuring this test.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COVERAGE_")}
+    env["COVERAGE_FILE"] = str(tmp_path / ".coverage")
+
+    def coverage(*args, check=True):
+        return subprocess.run(
+            [sys.executable, "-m", "coverage", *args],
+            cwd=run_tests.ROOT,
+            env=env,
+            capture_output=True,
+            encoding="utf-8",
+            check=check,
+        )
+
+    coverage("run", str(launcher))
+    coverage("combine", "--quiet")
+    json_path = tmp_path / "coverage.json"
+    coverage("json", "--quiet", "--fail-under=0", "-o", str(json_path))
+    files = json.loads(json_path.read_text(encoding="utf-8"))["files"]
+    covered = {
+        name.replace("\\", "/"): data["summary"]["covered_lines"]
+        for name, data in files.items()
+    }
+    assert covered[".claude/hooks/guards.py"] > 0
+    assert covered["tools/install.py"] == 0
+    assert not [name for name in covered if name.startswith(("tests/", ".picard/"))]
+    report = coverage("report", check=False)  # CI's gate: under fail_under fails
+    assert report.returncode == 2
+    assert "less than fail-under=100" in report.stdout + report.stderr
 
 
 def test_python_is_requires_python():

@@ -1,6 +1,7 @@
 """Fetch Picard's source, build a test venv with uv, and run pytest against it.
 
-Usage: python tools/run_tests.py [pytest args...]
+Usage: python tools/run_tests.py [--coverage] [pytest args...]
+--coverage also prints a coverage report, and fails below [tool.coverage.report] fail_under.
 Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/.
 """
 
@@ -113,14 +114,35 @@ def interpreter_works(python):
     return False
 
 
+def coverage_requirements():
+    """The coverage group's hashed pins from uv.lock, as requirements.txt text."""
+    uv = shutil.which("uv")
+    if uv is None:
+        sys.exit("uv not found on PATH")
+    return subprocess.run(
+        [uv, "export", "--frozen", "--only-group", "coverage", "--no-emit-project"]
+        + ["--no-header", "--format", "requirements.txt"],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,  # stderr still reaches the console, so uv's errors show
+        encoding="utf-8",
+        check=True,
+    ).stdout
+
+
 def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
     # Picard's own hashed pins: requirements.txt for Picard, requirements-build.txt constrains pytest and its deps.
     requirements, constraints = (
         picard_src / "requirements.txt",
         picard_src / "requirements-build.txt",
     )
+    coverage = coverage_requirements()
     digests = " ".join(
-        hashlib.sha256(p.read_bytes()).hexdigest() for p in (requirements, constraints)
+        hashlib.sha256(data).hexdigest()
+        for data in (
+            requirements.read_bytes(),
+            constraints.read_bytes(),
+            coverage.encode(),
+        )
     )
     wanted = f"{PYTHON} {PICARD_REF} {digests}"
     stamp = venv / ".picard-deps"
@@ -135,6 +157,8 @@ def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
     if venv.exists():
         rmtree(venv)
     run("uv", "venv", "--quiet", "--python", PYTHON, venv)
+    coverage_file = venv / "coverage-requirements.txt"
+    coverage_file.write_text(coverage, encoding="utf-8")
     run(
         "uv",
         "pip",
@@ -148,6 +172,8 @@ def ensure_venv(venv=VENV, picard_src=PICARD_SRC):
         requirements,
         "-c",
         constraints,
+        "-r",
+        coverage_file,
         "pytest",
     )
     stamp.write_text(wanted + "\n")
@@ -157,12 +183,24 @@ def main():
     ensure_picard_source()
     ensure_venv()
     env = dict(os.environ, PICARD_SRC=str(PICARD_SRC))
-    return subprocess.run(
-        [str(venv_python(VENV)), "-m", "pytest", *sys.argv[1:]],
-        cwd=ROOT,
-        env=env,
-        check=False,
-    ).returncode
+    args = sys.argv[1:]
+
+    def venv_run(*cmd):
+        return subprocess.run(
+            [str(venv_python(VENV)), "-m", *cmd], cwd=ROOT, env=env, check=False
+        ).returncode
+
+    if "--coverage" not in args:
+        return venv_run("pytest", *args)
+    args = [arg for arg in args if arg != "--coverage"]
+    # Erase first, so combine doesn't merge data files an earlier run left behind.
+    venv_run("coverage", "erase")
+    tests = venv_run("coverage", "run", "-m", "pytest", *args)
+    for step in (["combine", "--quiet"], ["report"]):
+        failed = venv_run("coverage", *step)
+        if failed:
+            return tests or failed
+    return tests
 
 
 if __name__ == "__main__":

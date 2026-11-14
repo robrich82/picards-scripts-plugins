@@ -4,6 +4,10 @@ version = "0"
 requires-python = ">=3.14,<3.15"
 
 [dependency-groups]
+# Installed into the test venv by tools/run_tests.py, not by uv sync.
+coverage = [
+    "coverage==7.17.3",
+]
 dev = [
     "ruff==0.17.5",
     "ty==0.0.102",
@@ -27,3 +31,16 @@ extend-select = ["I", "UP", "B"]
 # The test venv and the Picard source tools/run_tests.py fetches; the plugin runs inside Picard.
 python = ".picard/venv"
 extra-paths = [".picard/src", ".picard/src/test", "tools"]
+
+[tool.coverage.run]
+source_dirs = ["tools", "plugins", ".claude/hooks"]
+patch = ["subprocess"]  # the hook tests run .claude/hooks/*.py as subprocesses
+branch = true
+data_file = ".picard/coverage/.coverage"
+
+[tool.coverage.report]
+exclude_also = ['if __name__ == "__main__":']
+include_namespace_packages = true  # list never-run files in folders without __init__.py
+show_missing = true
+skip_covered = true
+fail_under = 100

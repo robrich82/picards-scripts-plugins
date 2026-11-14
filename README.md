@@ -52,6 +52,8 @@ python tools/run_tests.py
 
 The first run downloads Picard's source (`release-3.0.5`) and builds a venv for it on the Python that `requires-python` in `pyproject.toml` pins, both in the git-ignored `.picard/`. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
 
+`python tools/run_tests.py --coverage` also measures line and branch coverage of `tools/`, `plugins/` and `.claude/hooks/`, prints the report, and fails if any of it is uncovered (`fail_under` in `pyproject.toml`), so with only some tests selected it always fails. It is roughly three times slower.
+
 To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py`](tools/run_tests.py).
 
 ## Lint, format and type check
@@ -67,7 +69,7 @@ uv run ty check
 
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
-CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)).
+CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)); the tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails.
 
 `ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
