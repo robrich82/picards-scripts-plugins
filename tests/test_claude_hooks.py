@@ -1,5 +1,7 @@
 """The Claude Code hooks in .claude/hooks, fed hook JSON on stdin as Claude Code runs them."""
 
+import importlib.util
+import io
 import json
 import os
 import shutil
@@ -8,6 +10,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,6 +46,24 @@ def run_after_edit(name, file_path, tool_name="Edit", env=None):
 def context(result):
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def load_hook(name):
+    spec = importlib.util.spec_from_file_location(Path(name).stem, HOOKS / name)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def call_after_edit(monkeypatch, capsys, name, file_path):
+    """A post-edit hook's main() in-process, so a test can fake what it runs.
+    Returns (exit code, the note to Claude)."""
+    payload = json.dumps({"tool_input": {"file_path": str(file_path)}}).encode()
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(payload)))
+    code = load_hook(name).main()
+    output = json.loads(capsys.readouterr().out)
+    return code, output["hookSpecificOutput"]["additionalContext"]
 
 
 @pytest.fixture
@@ -137,6 +158,33 @@ def test_check_ptsp_blames_a_broken_checker_not_the_script(bare_repo):
     assert "picard" in note
 
 
+def test_check_ptsp_gives_no_file_line_for_an_inline_script(in_repo):
+    """A plain `script: ...` value has no `script: |` line to count from."""
+    path = in_repo / "test.ptsp"
+    path.write_text("title: Test\nscript: $nosuch(x)\n", encoding="utf-8")
+    result = run_after_edit("check_ptsp.py", path)
+    assert result.returncode == 2
+    assert "Unknown function '$nosuch'" in result.stderr
+    assert "script line 1 is" not in result.stderr
+
+
+def test_check_ptsp_says_when_the_check_times_out(bare_repo, monkeypatch, capsys):
+    venv = bare_repo / ".picard" / "venv"
+    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    (bare_repo / ".picard" / "src").mkdir()
+
+    def too_slow(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", too_slow)
+    path = ptsp(bare_repo, "$set(a,b)")
+    code, note = call_after_edit(monkeypatch, capsys, "check_ptsp.py", path)
+    assert code == 0
+    assert note == "test.ptsp was not parse-checked: the check timed out."
+
+
 @pytest.mark.parametrize("name", POST_EDIT_HOOKS)
 def test_hooks_ignore_other_files(name, in_repo):
     other = in_repo / "notes.txt"
@@ -161,6 +209,16 @@ def test_hooks_ignore_other_files(name, in_repo):
 def test_hooks_ignore_bad_input(name, stdin):
     result = run_hook(name, stdin)
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize("name", POST_EDIT_HOOKS)
+def test_hooks_ignore_files_outside_a_repo(name, tmp_path):
+    files = [ptsp(tmp_path, "$nosuch("), tmp_path / "example.py"]
+    files[1].write_text("x=1\n")
+    for path in files:
+        result = run_after_edit(name, path)
+        assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    assert files[1].read_text() == "x=1\n"
 
 
 def test_ruff_format_formats_and_sorts_imports_but_keeps_unused_ones(in_repo):
@@ -199,6 +257,59 @@ def test_ruff_format_leaves_picard_source_and_venv_alone(bare_repo, folder):
     result = run_after_edit("ruff_format.py", path)
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
     assert path.read_text() == "x=1\n"
+
+
+@pytest.fixture
+def py_file_with_uv(bare_repo, monkeypatch):
+    """A .py file in a repo, with uv on PATH as far as the hook can tell."""
+    path = bare_repo / "example.py"
+    path.write_text("x=1\n")
+    monkeypatch.setattr(shutil, "which", lambda name: "uv")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("stderr", "stdout", "shown"),
+    [
+        (
+            "warning: x\nerror: Failed to spawn: `ruff`\n",
+            "Usage: uv run\n",
+            "error: Failed to spawn: `ruff`",
+        ),
+        ("", "error: on stdout\n", "error: on stdout"),
+        ("", "", "no output"),
+    ],
+)
+def test_ruff_format_says_when_ruff_does_not_start(
+    py_file_with_uv, monkeypatch, capsys, stderr, stdout, shown
+):
+    path, commands = py_file_with_uv, []
+
+    def cannot_start(args, **kwargs):
+        commands.append(args)
+        return subprocess.CompletedProcess(args, 2, stdout, stderr)
+
+    monkeypatch.setattr(subprocess, "run", cannot_start)
+    code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", path)
+    assert code == 0
+    assert note == f"example.py was not formatted: Ruff didn't start ({shown})."
+    assert [c[-1] for c in commands] == ["--version"]  # the file is never formatted
+
+
+def test_ruff_format_says_when_ruff_times_out(py_file_with_uv, monkeypatch, capsys):
+    path, commands = py_file_with_uv, []
+
+    def slow_format(args, **kwargs):
+        commands.append(args)
+        if "format" in args:
+            raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+        return subprocess.CompletedProcess(args, 0, "ruff 0.0.0\n", "")
+
+    monkeypatch.setattr(subprocess, "run", slow_format)
+    code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", path)
+    assert code == 0
+    assert note == "example.py was not formatted: Ruff timed out."
+    assert len(commands) == 2  # --version, then format; the import sort never runs
 
 
 def settings_hooks():
@@ -450,6 +561,28 @@ def test_guards_deny_edits_inside_a_worktrees_picard(bare_repo):
     path = bare_repo / "tools" / ".." / ".picard" / "src" / "x.py"
     output = run_guard("Write", {"file_path": str(path), "content": ""})
     assert output and output["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize(("os_name", "inside"), [("nt", True), ("posix", False)])
+def test_guards_read_git_bash_drive_paths_only_on_windows(
+    tmp_path, monkeypatch, os_name, inside
+):
+    """Both branches on either OS. guards.py gets a stand-in os, since pathlib reads os.name."""
+    if os.name == "nt":
+        if not tmp_path.drive.endswith(":"):
+            pytest.skip("Git Bash spells only drive-letter paths /c/...")
+        repo = tmp_path
+        drive, rest = repo.as_posix().split(":", 1)
+        git_bash = f"/{drive.lower()}{rest}/.picard/src/x.py"
+    else:  # c:/... is relative on POSIX, so the repo is a folder named c: in the cwd
+        monkeypatch.chdir(tmp_path)
+        repo = tmp_path / "c:"
+        git_bash = "/c/.picard/src/x.py"
+    (repo / "tools").mkdir(parents=True)
+    (repo / "tools" / "run_tests.py").write_text("")
+    guards = load_hook("guards.py")
+    monkeypatch.setattr(guards, "os", SimpleNamespace(name=os_name))
+    assert guards.inside_picard(git_bash) is inside
 
 
 @pytest.mark.parametrize(
