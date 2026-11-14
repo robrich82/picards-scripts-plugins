@@ -69,6 +69,14 @@ def test_rmtree_removes_read_only_files(tmp_path):
     assert not (tmp_path / "repo").exists()
 
 
+def test_rmtree_handler_clears_read_only_and_retries(tmp_path):
+    """The handler itself, so platforms where a read-only file doesn't block deletion cover it too."""
+    path = tmp_path / "pack-1.pack"
+    read_only_file(path)
+    run_tests._clear_readonly(os.unlink, str(path), PermissionError("in use"))
+    assert not path.exists()
+
+
 def test_rmtree_handler_reraises_other_errors(tmp_path):
     error = OSError("Cannot call rmtree on a symbolic link")
     with pytest.raises(OSError, match="symbolic link"):
