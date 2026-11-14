@@ -69,12 +69,20 @@ def test_rmtree_removes_read_only_files(tmp_path):
     assert not (tmp_path / "repo").exists()
 
 
-def test_rmtree_handler_clears_read_only_and_retries(tmp_path):
+def test_rmtree_handler_clears_read_only_and_retries(tmp_path, monkeypatch):
     """The handler itself, so platforms where a read-only file doesn't block deletion cover it too."""
     path = tmp_path / "pack-1.pack"
     read_only_file(path)
-    run_tests._clear_readonly(os.unlink, str(path), PermissionError("in use"))
-    assert not path.exists()
+    unlink, writable_on_retry = os.unlink, []
+
+    def spy(target):
+        writable_on_retry.append(bool(os.stat(target).st_mode & stat.S_IWRITE))
+        unlink(target)
+
+    # The handler only retries os.unlink/os.rmdir, so the spy has to be os.unlink.
+    monkeypatch.setattr(os, "unlink", spy)
+    run_tests._clear_readonly(spy, str(path), PermissionError("in use"))
+    assert writable_on_retry == [True] and not path.exists()
 
 
 def test_rmtree_handler_reraises_other_errors(tmp_path):

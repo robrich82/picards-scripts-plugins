@@ -348,13 +348,14 @@ def test_all_installs_scripts_then_plugin(monkeypatch):
     assert done == ["scripts", "plugin"]
 
 
-def test_install_fails_when_the_helper_fails(ini, monkeypatch):
+def test_install_fails_when_the_helper_fails(ini, monkeypatch, capfd):
     """The real helper in the venv, refusing because there is no config yet."""
     monkeypatch.setattr(install, "picard_running", lambda: False)
     monkeypatch.setattr(install, "installed_picard_version", lambda: CURRENT)
     with pytest.raises(SystemExit) as raised:
         install.main(["scripts"])
     assert raised.value.code == 1 and not ini.exists()
+    assert "No Picard config" in capfd.readouterr().err  # the helper is a child process
 
 
 def test_failed_backup_refused_untouched(ini, monkeypatch):
