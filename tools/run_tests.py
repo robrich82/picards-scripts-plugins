@@ -1,7 +1,7 @@
 """Fetch Picard's source, build a test venv with uv, and run pytest against it.
 
 Usage: python tools/run_tests.py [--coverage] [pytest args...]
---coverage measures the run and writes .picard/coverage.xml.
+--coverage also prints a coverage report and writes .picard/coverage.xml.
 Needs git and uv on PATH. The Picard source and the venv it builds live in git-ignored .picard/.
 """
 
@@ -123,7 +123,7 @@ def coverage_requirements():
         [uv, "export", "--frozen", "--only-group", "coverage", "--no-emit-project"]
         + ["--no-header", "--format", "requirements.txt"],
         cwd=ROOT,
-        capture_output=True,
+        stdout=subprocess.PIPE,  # stderr still reaches the console, so uv's errors show
         encoding="utf-8",
         check=True,
     ).stdout
@@ -190,15 +190,16 @@ def main():
             [str(venv_python(VENV)), "-m", *cmd], cwd=ROOT, env=env, check=False
         ).returncode
 
-    if args[:1] != ["--coverage"]:
+    if "--coverage" not in args:
         return venv_run("pytest", *args)
-    # Settings in pyproject.toml's [tool.coverage]; erase drops data a previous run left to combine.
+    args = [arg for arg in args if arg != "--coverage"]
+    # Erase first, so combine doesn't merge data files an earlier run left behind.
     venv_run("coverage", "erase")
-    tests = venv_run("coverage", "run", "-m", "pytest", *args[1:])
+    tests = venv_run("coverage", "run", "-m", "pytest", *args)
     for step in (["combine", "--quiet"], ["xml", "--quiet"], ["report"]):
         failed = venv_run("coverage", *step)
         if failed:
-            return failed
+            return tests or failed
     return tests
 
 

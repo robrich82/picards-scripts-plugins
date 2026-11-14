@@ -4,7 +4,7 @@ version = "0"
 requires-python = ">=3.14,<3.15"
 
 [dependency-groups]
-# tools/run_tests.py installs this into the test venv, not uv sync into .venv.
+# Installed into the test venv by tools/run_tests.py, not by uv sync.
 coverage = [
     "coverage==7.17.3",
 ]
@@ -33,14 +33,16 @@ python = ".picard/venv"
 extra-paths = [".picard/src", ".picard/src/test", "tools"]
 
 [tool.coverage.run]
-# python tools/run_tests.py --coverage. The hook and install tests run these files as subprocesses.
-source = ["tools", "plugins", ".claude/hooks"]
-patch = ["subprocess"]
+# source_dirs, not source, with relative_files: coverage.xml names files by repo path, which GitHub matches.
+source_dirs = ["tools", "plugins", ".claude/hooks"]
+patch = ["subprocess"]  # the hook tests run .claude/hooks/*.py as subprocesses
 branch = true
+relative_files = true
 data_file = ".picard/coverage/.coverage"
 
 [tool.coverage.report]
 exclude_also = ['if __name__ == "__main__":']
+include_namespace_packages = true  # list never-run files in folders without __init__.py
 show_missing = true
 skip_covered = true
 

@@ -1,6 +1,7 @@
 """The test runner's rebuild logic, with git and uv replaced by a recorder."""
 
 import importlib.util
+import json
 import os
 import shutil
 import stat
@@ -325,11 +326,15 @@ def test_main_forwards_args_and_exit_code(monkeypatch):
     [
         ({}, 0),
         ({"pytest": 1}, 1),  # failing tests still get a report
-        ({"pytest": 1, "combine": 4}, 4),  # a report step failing wins
+        ({"pytest": 1, "combine": 4}, 1),  # the test failure is the one to report
+        ({"combine": 4}, 4),  # a failed report step fails the run
     ],
 )
+@pytest.mark.parametrize(
+    "argv", [["--coverage", "-k", "CV"], ["-k", "CV", "--coverage"]]
+)
 def test_main_coverage_runs_pytest_under_coverage_then_reports(
-    monkeypatch, codes, expected
+    monkeypatch, codes, expected, argv
 ):
     seen = []
 
@@ -341,7 +346,7 @@ def test_main_coverage_runs_pytest_under_coverage_then_reports(
     monkeypatch.setattr(run_tests, "ensure_picard_source", lambda: None)
     monkeypatch.setattr(run_tests, "ensure_venv", lambda: None)
     monkeypatch.setattr(run_tests.subprocess, "run", fake_subprocess_run)
-    monkeypatch.setattr(sys, "argv", ["run_tests.py", "--coverage", "-k", "CV"])
+    monkeypatch.setattr(sys, "argv", ["run_tests.py", *argv])
     assert run_tests.main() == expected
     steps = [
         ["coverage", "erase"],
@@ -353,16 +358,42 @@ def test_main_coverage_runs_pytest_under_coverage_then_reports(
     assert seen == steps[: 3 if "combine" in codes else 5]
 
 
-def test_coverage_config_measures_subprocesses():
-    """The hook and install tests run their files as subprocesses."""
-    import coverage
+def test_coverage_measures_hook_subprocesses_by_repo_path(tmp_path):
+    """The real [tool.coverage] config, run as --coverage runs it: a hook launched as a
+    subprocess from another folder is measured, and never-run files are listed at 0%."""
+    hook = run_tests.ROOT / ".claude" / "hooks" / "guards.py"
+    launcher = tmp_path / "launch.py"
+    launcher.write_text(
+        "import subprocess, sys\n"
+        f"subprocess.run([sys.executable, {str(hook)!r}], input='{{}}', text=True,"
+        f" cwd={str(tmp_path)!r}, check=False)\n"
+    )
+    # Not the COVERAGE_* settings of an outer --coverage run measuring this test.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COVERAGE_")}
+    env["COVERAGE_FILE"] = str(tmp_path / ".coverage")
 
-    config = coverage.Coverage(
-        config_file=str(run_tests.ROOT / "pyproject.toml")
-    ).config
-    assert config.patch == ["subprocess"]
-    assert sorted(config.source or []) == [".claude/hooks", "plugins", "tools"]
-    assert config.xml_output == ".picard/coverage.xml"
+    def coverage(*args):
+        subprocess.run(
+            [sys.executable, "-m", "coverage", *args],
+            cwd=run_tests.ROOT,
+            env=env,
+            capture_output=True,
+            check=True,
+        )
+
+    coverage("run", str(launcher))
+    coverage("combine", "--quiet")
+    coverage("json", "--quiet", "-o", str(tmp_path / "coverage.json"))
+    files = json.loads((tmp_path / "coverage.json").read_text(encoding="utf-8"))[
+        "files"
+    ]
+    covered = {
+        name.replace("\\", "/"): data["summary"]["covered_lines"]
+        for name, data in files.items()
+    }
+    assert covered[".claude/hooks/guards.py"] > 0
+    assert covered["tools/install.py"] == 0
+    assert not [name for name in covered if name.startswith(("tests/", ".picard/"))]
 
 
 def test_python_is_requires_python():
