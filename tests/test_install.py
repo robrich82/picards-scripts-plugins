@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -210,3 +211,70 @@ def test_make_targets_run_the_installer(target, what):
         check=True,
     ).stdout
     assert out.split() == ["python", "tools/install.py", what]
+
+
+def as_if_on(monkeypatch, os_name, platform="linux"):
+    """install.py sees another OS; os.name itself stays put, since pathlib picks its Path class from it."""
+    monkeypatch.setattr(
+        install, "os", SimpleNamespace(name=os_name, environ=os.environ)
+    )
+    monkeypatch.setattr(
+        install, "sys", SimpleNamespace(platform=platform, exit=sys.exit)
+    )
+
+
+@pytest.mark.parametrize(
+    ("os_name", "platform", "env", "expected"),
+    [
+        ("nt", "win32", {"APPDATA": "{tmp}/AppData"}, "{tmp}/AppData/MusicBrainz"),
+        ("posix", "darwin", {}, "{home}/Library/Application Support/MusicBrainz"),
+        ("posix", "linux", {"XDG_DATA_HOME": "{tmp}/data"}, "{tmp}/data/MusicBrainz"),
+        ("posix", "linux", {}, "{home}/.local/share/MusicBrainz"),
+    ],
+)
+def test_local_plugins_dir_per_platform(
+    monkeypatch, tmp_path, os_name, platform, env, expected
+):
+    home = tmp_path / "home"
+    monkeypatch.delenv("PICARD_LOCAL_PLUGINS", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value.format(tmp=tmp_path))
+    as_if_on(monkeypatch, os_name, platform)
+    monkeypatch.setattr(install.Path, "home", lambda: home)
+    assert install.local_plugins_dir() == Path(
+        expected.format(tmp=tmp_path, home=home), "local-plugins"
+    )
+
+
+@pytest.fixture
+def no_cli_override(monkeypatch):
+    monkeypatch.delenv("PICARD_CLI", raising=False)
+
+
+def test_picard_cli_found_on_path(no_cli_override, monkeypatch, tmp_path):
+    cli = tmp_path / "picard-cli"
+    cli.write_text("")
+    monkeypatch.setattr(install.shutil, "which", lambda name: str(cli))
+    assert install.picard_cli() == [str(cli)]
+
+
+def test_picard_cli_found_in_program_files_on_windows(
+    no_cli_override, monkeypatch, tmp_path
+):
+    cli = tmp_path / "MusicBrainz Picard" / "picard-cli.exe"
+    cli.parent.mkdir()
+    cli.write_text("")
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    as_if_on(monkeypatch, "nt", "win32")
+    assert install.picard_cli() == [str(cli)]
+
+
+@pytest.mark.parametrize("os_name", ["nt", "posix"])
+def test_picard_cli_not_found(no_cli_override, monkeypatch, tmp_path, os_name):
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))  # no Picard installed there
+    as_if_on(monkeypatch, os_name)
+    with pytest.raises(SystemExit, match="picard-cli not found"):
+        install.picard_cli()

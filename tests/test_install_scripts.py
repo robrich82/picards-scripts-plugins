@@ -346,3 +346,36 @@ def test_all_installs_scripts_then_plugin(monkeypatch):
     monkeypatch.setattr(install, "install_plugin", lambda: done.append("plugin"))
     install.main(["all"])
     assert done == ["scripts", "plugin"]
+
+
+def test_install_fails_when_the_helper_fails(ini, monkeypatch, capfd):
+    """The real helper in the venv, refusing because there is no config yet."""
+    monkeypatch.setattr(install, "picard_running", lambda: False)
+    monkeypatch.setattr(install, "installed_picard_version", lambda: CURRENT)
+    with pytest.raises(SystemExit) as raised:
+        install.main(["scripts"])
+    assert raised.value.code == 1 and not ini.exists()
+    assert "No Picard config" in capfd.readouterr().err  # the helper is a child process
+
+
+def test_failed_backup_refused_untouched(ini, monkeypatch):
+    write_config(ini, [(0, "Mine", True, "$noop()")])
+    original = ini.read_bytes()
+
+    def no_room(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(config_scripts.shutil, "copyfile", no_room)
+    with pytest.raises(SystemExit, match="Can't back up .*No space left"):
+        config_scripts.main()
+    assert ini.read_bytes() == original
+
+
+def test_profile_without_our_scripts_not_reported(ini, capsys):
+    profiles = (
+        [{"id": "p1", "title": "Off", "enabled": False}],
+        {"p1": {"list_of_scripts": [(0, "Theirs", True, "")]}},
+    )
+    write_config(ini, [], profiles=profiles)
+    config_scripts.main()
+    assert "Not updated" not in capsys.readouterr().out
