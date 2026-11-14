@@ -1,7 +1,7 @@
 [project]
 name = "picards-scripts-plugins"
 version = "0"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 
 [dependency-groups]
 dev = [
@@ -13,8 +13,9 @@ dev = [
 exclude-newer = "1 day"
 
 [tool.ruff]
-# These and the Claude hooks run on whatever Python is installed, before the test venv exists.
-per-file-target-version = { "tools/run_tests.py" = "py39", "tools/install.py" = "py39", ".claude/hooks/*.py" = "py39" }
+# py39: these and the Claude hooks run on whatever Python is installed, before the test venv exists.
+# py310: plugins run on Picard's Python, which can be as old as Picard 3's minimum.
+per-file-target-version = { "tools/run_tests.py" = "py39", "tools/install.py" = "py39", ".claude/hooks/*.py" = "py39", "plugins/**" = "py310" }
 
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
