@@ -29,10 +29,10 @@ PLUGINS = re.compile(r"\bplugins\s", re.IGNORECASE)
 PLUGINS_INSTALL = re.compile(r"\sinstall\b", re.IGNORECASE)
 # `)` and a backtick end `$(which mise)` and `(Get-Command mise)`.
 MISE = re.compile(r"\bmise(?:\.exe)?(?=[\s)`]|$)", re.IGNORECASE)
-# An install task's name, or a pattern such as `install*` or `*` that mise expands to one.
-INSTALL_TASK = re.compile(
-    r"(?<![\w.-])install-(?:all|plugin|scripts)(?![\w.-])|[*?\[{]"
-)
+INSTALL_TASK = re.compile(r"(?<![\w.-])install-(?:all|plugin|scripts)(?![\w.-])")
+# After run/watch, a pattern such as `install*` or `*` that mise expands to an install task.
+RUN = re.compile(r"\s(?:run|r|watch|w)(?=\s)")
+GLOB = re.compile(r"[*?\[{]")
 MSYS_DRIVE = re.compile(r"^/([a-zA-Z])/")
 # A quote opens only after a space, `=` or `(`: the apostrophe in `it's` doesn't.
 QUOTED = re.compile(r"""(?<![^\s=(])(?:'[^']*'|"[^"]*")""")
@@ -112,7 +112,12 @@ def installs(segment):
     if plugins and PLUGINS_INSTALL.search(segment, plugins.end() - 1):
         return True
     mise = MISE.search(segment)
-    return bool(mise and INSTALL_TASK.search(segment, mise.end()))
+    if not mise:
+        return False
+    if INSTALL_TASK.search(segment, mise.end()):
+        return True
+    run = RUN.search(segment, mise.end())
+    return bool(run and GLOB.search(segment, run.end()))
 
 
 def check_command(command, cwd):

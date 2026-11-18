@@ -496,6 +496,10 @@ INSTALL_CASES = [
     ("mise run install-?ll", "ask"),
     ("mise run 'install-[a]ll'", "ask"),
     ('mise run "install-{all,x}"', "ask"),
+    ("mise r --jobs 1 'i*'", "ask"),
+    ("mise watch 'install-*'", "ask"),
+    ("mise w '*'", "ask"),
+    ("mise tasks run 'install*'", "ask"),
     ("$(which mise) run install-all", "ask"),
     ("`which mise` run install-all", "ask"),
     ("& (Get-Command mise) run install-all", "ask"),
@@ -528,6 +532,10 @@ INSTALL_CASES = [
     ("mise run install-all-x", None),
     ("mise run install-plugins", None),
     ("mise run INSTALL-ALL", None),  # mise task names are case-sensitive: no such task
+    ("does mise work on Windows?", None),  # glob characters count only after run/watch
+    ("mise [tools] has uv {0.13.8}", None),
+    ("mise ls 'u*'", None),
+    ("mise run", None),
     ("echo install-plugin", None),
     ("make install", None),  # no Makefile any more
     ("cmake --install build", None),
