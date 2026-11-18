@@ -30,9 +30,11 @@ PLUGINS_INSTALL = re.compile(r"\sinstall\b", re.IGNORECASE)
 # `)` and a backtick end `$(which mise)` and `(Get-Command mise)`.
 MISE = re.compile(r"\bmise(?:\.exe)?(?=[\s)`]|$)", re.IGNORECASE)
 INSTALL_TASK = re.compile(r"(?<![\w.-])install-(?:all|plugin|scripts)(?![\w.-])")
-# After run/watch, a pattern such as `install*` or `*` that mise expands to an install task.
+# A pattern such as `install*` or `*` that mise expands to install tasks, after run/watch or
+# in place of the command (`mise 'i*'` runs matching tasks too).
 RUN = re.compile(r"\s(?:run|r|watch|w)(?=\s)")
 GLOB = re.compile(r"[*?\[{]")
+MISE_VALUE_FLAGS = {"-C", "--cd", "-E", "--env", "-j", "--jobs"}
 MSYS_DRIVE = re.compile(r"^/([a-zA-Z])/")
 # A quote opens only after a space, `=` or `(`: the apostrophe in `it's` doesn't.
 QUOTED = re.compile(r"""(?<![^\s=(])(?:'[^']*'|"[^"]*")""")
@@ -105,6 +107,19 @@ def unquote(match):
     return text if text and not any(c.isspace() for c in text) else "''"
 
 
+def mise_command(args):
+    """The word in mise's command position: not a flag or a global flag's value."""
+    skip = False
+    for word in args:
+        if skip:
+            skip = False
+        elif word in MISE_VALUE_FLAGS:
+            skip = True
+        elif not word.startswith("-"):
+            return word
+    return ""
+
+
 def installs(segment):
     if INSTALLER.search(segment):
         return True
@@ -115,6 +130,8 @@ def installs(segment):
     if not mise:
         return False
     if INSTALL_TASK.search(segment, mise.end()):
+        return True
+    if GLOB.search(mise_command(segment[mise.end() :].lstrip(")`").split())):
         return True
     run = RUN.search(segment, mise.end())
     return bool(run and GLOB.search(segment, run.end()))
