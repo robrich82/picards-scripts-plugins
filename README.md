@@ -16,7 +16,7 @@ My tagger scripts and plugin for [MusicBrainz Picard](https://picard.musicbrainz
 
 ### Installing a script
 
-With Picard closed, run `make install-scripts` (`make install` installs the scripts and the plugin). It writes the scripts into Picard's config and turns on **Enable Tagger Script(s)**:
+With Picard closed, run `mise run install-scripts` (`mise run install-all` installs the scripts and the plugin). It writes the scripts into Picard's config and turns on **Enable Tagger Script(s)**:
 
 - These scripts end up in file order. They take the places they already held, plus new places at the end, and your other scripts stay where they are.
 - A script already there, under its name or with ` (imported)` appended (English UI), is replaced and renamed back. It stays enabled if any copy of it was, and other copies are removed. A new one is enabled.
@@ -34,7 +34,7 @@ By hand: Options → Options… → Scripting. Tick **Enable Tagger Script(s)** 
 
 ### Installing a plugin
 
-With Picard closed, run `make install-plugin` (`mise install` provides `make`). It copies the plugin to `local-plugins` in Picard's data folder (`%APPDATA%\MusicBrainz` on Windows) and registers it with `picard-cli`; run it again to update, which also re-enables the plugin if you'd disabled it. `PICARD_CLI` sets the path to `picard-cli` when it isn't on `PATH` or in the default Windows install folder.
+With Picard closed, run `mise run install-plugin`. It copies the plugin to `local-plugins` in Picard's data folder (`%APPDATA%\MusicBrainz` on Windows) and registers it with `picard-cli`; run it again to update, which also re-enables the plugin if you'd disabled it. `PICARD_CLI` sets the path to `picard-cli` when it isn't on `PATH` or in the default Windows install folder.
 
 By hand: Picard runs a local plugin from the folder you give it, without copying it, so first copy `plugins/highest-disc-total` somewhere it can stay (e.g. `%APPDATA%\MusicBrainz\local-plugins\`).
 
@@ -44,13 +44,13 @@ Or, with Picard closed, `picard-cli --yes plugins install C:/path/to/highest-dis
 
 ## Tests
 
-The tests run every script, in file order, through Picard's real script parser on sample tracks, and load the plugin through Picard's plugin loader. They need `git` and [`uv`](https://docs.astral.sh/uv/); `mise install` installs the pinned uv:
+The tests run every script, in file order, through Picard's real script parser on sample tracks, and load the plugin through Picard's plugin loader. They need `git`, [`mise`](https://mise.jdx.dev/) and [`uv`](https://docs.astral.sh/uv/); `mise install` installs the pinned uv:
 
 ```sh
 python tools/run_tests.py
 ```
 
-The first run downloads Picard's source (`release-3.0.5`) and builds a venv for it on the Python that `requires-python` in `pyproject.toml` pins, both in the git-ignored `.picard/`. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV`. On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
+The first run downloads Picard's source (`release-3.0.5`) and builds a venv for it on the Python that `requires-python` in `pyproject.toml` pins, both in the git-ignored `.picard/`. Extra arguments go to pytest, e.g. `python tools/run_tests.py -k CV` (or `mise run test -k CV`). On headless Linux, Qt also needs `libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0` (Debian/Ubuntu names).
 
 `python tools/run_tests.py --coverage` also measures line and branch coverage of `tools/`, `plugins/` and `.claude/hooks/`, prints the report, and fails if any of it is uncovered (`fail_under` in `pyproject.toml`), so with only some tests selected it always fails. It is roughly three times slower.
 

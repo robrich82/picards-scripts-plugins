@@ -362,7 +362,7 @@ def test_settings_wire_up_every_hook_script():
 
 
 def test_settings_command_runs_the_guard():
-    stdin = json.dumps({"tool_input": {"command": "make install"}})
+    stdin = json.dumps({"tool_input": {"command": "mise run install-all"}})
     hook = next(h for _, _, h in settings_hooks() if "guards.py" in h["command"])
     result = run_settings_command(hook, ROOT, stdin)
     assert (
@@ -472,28 +472,42 @@ def test_guards_gh_in_a_worktrees_picard(bare_repo):
 
 INSTALL_CASES = [
     # installs: ask
-    ("make install", "ask"),
-    ("make INSTALL", "ask"),
-    ("make", "ask"),  # install is the Makefile's first target
-    ("make -j2", "ask"),
-    ("make PYTHON=py", "ask"),
-    ("make -j$(nproc) install", "ask"),
-    ("make -C $(git rev-parse --show-toplevel) install", "ask"),
-    ("make PYTHON=$(which python3) install-plugin", "ask"),
-    ("gmake install", "ask"),
+    ("mise run install-all", "ask"),
+    ("mise r install-plugin", "ask"),
+    ("mise install-scripts", "ask"),  # mise runs a task named in place of a command
+    ("mise tasks run install-plugin", "ask"),
+    ("mise run test ::: install-scripts", "ask"),
+    ("mise run --jobs 1 install-all", "ask"),
+    ("mise -C $(git rev-parse --show-toplevel) run install-all", "ask"),
+    ("MISE.EXE run install-all", "ask"),
+    (r'& "C:\Users\me\.local\bin\mise.exe" run install-plugin', "ask"),
     ("picard-cli plugins --locale en install C:/x", "ask"),
-    ("make -C . install-plugin", "ask"),
-    ("make.exe install", "ask"),
-    ("mingw32-make install", "ask"),
-    (r'& "C:\msys64\usr\bin\make.exe" install', "ask"),
-    ("mise exec -- make install-scripts", "ask"),
-    ("git status;make install-scripts", "ask"),
-    ("a&&make install", "ask"),
-    ("(make install)", "ask"),
-    ("make install>install.log", "ask"),
-    ("make install-plugin>NUL", "ask"),
-    ("make \\\n  install", "ask"),
-    ("make `\n  install", "ask"),
+    ("git status;mise run install-scripts", "ask"),
+    ("a&&mise run install-all", "ask"),
+    ("(mise run install-all)", "ask"),
+    ("mise run install-all>install.log", "ask"),
+    ("mise run install-plugin>NUL", "ask"),
+    ("mise run \\\n  install-all", "ask"),
+    ("mise run `\n  install-all", "ask"),
+    ("mise\trun install-all", "ask"),
+    ("mise run 'install-all'", "ask"),
+    ("mise run '*'", "ask"),  # mise expands task patterns
+    ("mise run install*", "ask"),
+    ("mise run install-?ll", "ask"),
+    ("mise run 'install-[a]ll'", "ask"),
+    ('mise run "install-{all,x}"', "ask"),
+    ("mise r --jobs 1 'i*'", "ask"),
+    ("mise watch 'install-*'", "ask"),
+    ("mise w '*'", "ask"),
+    ("mise tasks run 'install*'", "ask"),
+    ("mise 'i*'", "ask"),  # a pattern in place of the command runs matching tasks
+    ("mise '*'", "ask"),
+    ("mise -C . 'install*'", "ask"),
+    ("mise --cd x -j 2 -q 'i*'", "ask"),
+    ("$(which mise) 'i*'", "ask"),
+    ("$(which mise) run install-all", "ask"),
+    ("`which mise` run install-all", "ask"),
+    ("& (Get-Command mise) run install-all", "ask"),
     ("picard-cli --yes plugins install C:/x/highest-disc-total", "ask"),
     ("python tools/install.py scripts", "ask"),
     ('python "tools/install.py" scripts', "ask"),
@@ -505,20 +519,36 @@ INSTALL_CASES = [
     ("uv run --with rich python -I tools/install.py", "ask"),
     ("uv run ruff check tools/install.py", "ask"),  # any unquoted mention asks
     # not installs: allow
-    ("make test", None),
-    ('make test PYTEST_ARGS="-k install"', None),
-    ("make test > install.log", None),
-    ("make uninstall", None),
-    ("make test >> install.log", None),
-    ("make help | grep install", None),
-    ("make PREFIX=/opt/install all", None),
-    ("make $(MAKEFLAGS) test", None),
-    ("make test && uv pip install ruff", None),
+    ("mise install", None),  # mise's own command: installs the tools in mise.toml
+    ("mise install --locked uv", None),
+    ("mise uninstall uv", None),
+    ("mise install-into uv@0.13.8 /tmp/uv", None),
+    ("mise run test", None),
+    ("mise run test -k install", None),
+    ("mise run test > install-all.log", None),
+    ("mise tasks ls | grep install", None),
+    ("mise run test && uv pip install ruff", None),
+    ("cat mise.toml | grep install-all", None),
+    ("cat mise.toml install-all", None),
+    ("install-all mise run test", None),
+    ("mise run pre-install-all", None),
+    ("mise run foo.install-all", None),
+    ("mise run x_install-all", None),
+    ("mise run install-all-x", None),
+    ("mise run install-plugins", None),
+    ("mise run INSTALL-ALL", None),  # mise task names are case-sensitive: no such task
+    ("does mise work on Windows?", None),  # glob characters count only after run/watch
+    ("mise has uv {0.13.8}", None),
+    ("mise ls 'u*'", None),
+    ("mise -C 'a*' -E x ls", None),  # flag values aren't the command
+    ("mise -v", None),
+    ("mise run", None),
+    ("echo install-plugin", None),
+    ("make install", None),  # no Makefile any more
     ("cmake --install build", None),
     ("python tools/run_tests.py tests/test_install.py", None),
-    ("cat Makefile | grep install", None),
-    ('git commit -m "make sure we install the hook via tools/install.py"', None),
-    ("git commit -m 'make install and tools/install.py'", None),
+    ('git commit -m "mise run install-all via tools/install.py"', None),
+    ("git commit -m 'mise run install-all and tools/install.py'", None),
 ]
 
 
@@ -530,8 +560,8 @@ def test_guards_installs(command, expected):
 
 @pytest.mark.parametrize(
     "command",
-    ["echo " + "make x " * 20000, "@'\n" * 50000, "x '" * 50000, "$(" * 50000],
-    ids=["make", "herestring", "quote", "paren"],
+    ["echo " + "mise x " * 20000, "@'\n" * 50000, "x '" * 50000, "$(" * 50000],
+    ids=["mise", "herestring", "quote", "paren"],
 )
 def test_guards_stay_fast_on_a_long_command(command):
     """A regex that backtracks per opener would run past the hook's 10s timeout."""
@@ -542,7 +572,7 @@ def test_guards_stay_fast_on_a_long_command(command):
 
 def test_guards_give_every_reason_for_a_combined_command():
     reason = run_guard(
-        "Bash", {"command": "cd .picard/src && gh pr list && make install"}
+        "Bash", {"command": "cd .picard/src && gh pr list && mise run install-all"}
     )
     assert "upstream" in reason["permissionDecisionReason"]
     assert "Picard config" in reason["permissionDecisionReason"]

@@ -1,3 +1,24 @@
+min_version = "2026.11.1" # the first release that reads mise.lock's lockfile_version 4
+
+[settings]
+lockfile = true
+
 [tools]
-make = "4.4.1"
 uv = "0.13.8"
+
+# Picard must be closed; tools/install.py checks.
+[tasks.install-all]
+description = "Install the tagger scripts and the plugin into Picard"
+run = "python tools/install.py all"
+
+[tasks.install-plugin]
+description = "Install the plugin into Picard"
+run = "python tools/install.py plugin"
+
+[tasks.install-scripts]
+description = "Install the tagger scripts into Picard"
+run = "python tools/install.py scripts"
+
+[tasks.test]
+description = "Run the tests; extra arguments go to pytest"
+run = "python tools/run_tests.py"

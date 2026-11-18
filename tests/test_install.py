@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -199,18 +200,37 @@ def test_pgrep_failure_raises(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("target", "what"),
-    [("install", "all"), ("install-plugin", "plugin"), ("install-scripts", "scripts")],
+    ("args", "command"),
+    [
+        (["install-all"], "python tools/install.py all"),
+        (["install-plugin"], "python tools/install.py plugin"),
+        (["install-scripts"], "python tools/install.py scripts"),
+        (["test", "-k", "CV"], "python tools/run_tests.py -k CV"),
+    ],
 )
-def test_make_targets_run_the_installer(target, what):
-    out = subprocess.run(
-        ["make", "-n", "PYTHON=python", target],
+def test_mise_tasks_run_the_tools(args, command):
+    mise = shutil.which("mise")
+    assert mise, "mise must be on PATH for the mise task tests"
+    # --dry-run prints each task's command to stderr. Pinned so the user's mise config can't
+    # hide or colour that line, or install their global tools.
+    env = {
+        **os.environ,
+        "MISE_TRUSTED_CONFIG_PATHS": str(ROOT),
+        "MISE_QUIET": "0",
+        "MISE_TASK_OUTPUT": "prefix",
+        "MISE_COLOR": "0",
+        "NO_COLOR": "1",
+        "MISE_TASK_RUN_AUTO_INSTALL": "0",
+    }
+    err = subprocess.run(
+        [mise, "run", "--dry-run", *args],
         cwd=ROOT,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
-    ).stdout
-    assert out.split() == ["python", "tools/install.py", what]
+    ).stderr
+    assert f"[{args[0]}] $ {command}" in err.splitlines()
 
 
 def as_if_on(monkeypatch, os_name, platform="linux"):
