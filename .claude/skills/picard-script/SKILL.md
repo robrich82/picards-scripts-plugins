@@ -11,7 +11,7 @@ The function reference is the Picard release under test, `PICARD_REF` in `tools/
 
 YAML with `title`, `script_language_version: '1.1'` and `script: |`. YAML does no escaping inside a `|` block, so the indented text is passed to Picard exactly as written.
 
-`title` is the name Picard shows, and `make install-scripts` matches existing scripts by it. A rename is visible to the user: update `test_scripts_import_with_titles_in_run_order`.
+`title` is the name Picard shows, and `mise run install-scripts` matches existing scripts by it. A rename is visible to the user: update `test_scripts_import_with_titles_in_run_order`.
 
 ## Escaping
 

@@ -3,14 +3,15 @@
 - gh run in .picard/src targets the upstream metabrainz/picard clone. Ask before a gh command
   when the shell's cwd is inside .picard/ or the command mentions .picard, unless that command
   passes -R or names this repo.
-- make install* (and a bare make: install is the first target), tools/install.py and
+- mise's install-all, install-plugin and install-scripts tasks, tools/install.py and
   `picard-cli plugins install` write the user's real Picard config: ask first.
 - Deny Edit/Write/MultiEdit/NotebookEdit inside .picard/, the upstream Picard clone and test
   venv that tools/run_tests.py manages. Shell commands that write there are not caught.
 
 The command checks are best-effort text matches per `;`/`&`/`|`/newline-separated segment, not a
 shell parser. Quoted text with spaces is skipped: a simply-quoted commit message, but also
-`bash -c "make install"`. Heredoc bodies and unquoted mentions such as `git add tools/install.py`
+`bash -c "mise run install-all"`, and a task name that reaches mise through a pipe or variable
+isn't seen. Heredoc bodies and unquoted mentions such as `git add tools/install.py`
 ask too.
 """
 
@@ -26,16 +27,20 @@ PICARD_DIR = re.compile(r"(?<![\w.])\.picard(?![\w.-])", re.IGNORECASE)
 INSTALLER = re.compile(r"\binstall\.py\b|tools\.install\b", re.IGNORECASE)
 PLUGINS = re.compile(r"\bplugins\s", re.IGNORECASE)
 PLUGINS_INSTALL = re.compile(r"\sinstall\b", re.IGNORECASE)
-MAKE = re.compile(r"\bg?make(?:\.exe)?(?:\s|$)", re.IGNORECASE)
-MAKE_VALUE_FLAGS = {"-C", "-f", "-I", "-o", "-W"}
-REDIRECT = re.compile(r"\d*[<>]+")
+# `)` and a backtick end `$(which mise)` and `(Get-Command mise)`.
+MISE = re.compile(r"\bmise(?:\.exe)?(?=[\s)`]|$)", re.IGNORECASE)
+# An install task's name, or a pattern such as `install*` or `*` that mise expands to one.
+INSTALL_TASK = re.compile(
+    r"(?<![\w.-])install-(?:all|plugin|scripts)(?![\w.-])|[*?\[{]"
+)
 MSYS_DRIVE = re.compile(r"^/([a-zA-Z])/")
 # A quote opens only after a space, `=` or `(`: the apostrophe in `it's` doesn't.
 QUOTED = re.compile(r"""(?<![^\s=(])(?:'[^']*'|"[^"]*")""")
 HERESTRING_OPEN = re.compile(r"""@(['"])\r?\n""")
-QUOTED_EXE = re.compile(r"(?:^|[/\\])(gh|make)(?:\.exe)?$", re.IGNORECASE)
+QUOTED_EXE = re.compile(r"(?:^|[/\\])(gh|mise)(?:\.exe)?$", re.IGNORECASE)
 CONTINUATION = re.compile(r"[\\`]\r?\n")
-# Not parens: `make -j$(nproc) install` and `gh pr view $(...) -R x` stay one segment.
+# Not parens: `mise -C $(git rev-parse --show-toplevel) run install-all` and
+# `gh pr view $(...) -R x` stay one segment.
 SEPARATOR = re.compile(r"[;&|\n]")
 REPO = "robrich82/picards-scripts-plugins"
 
@@ -92,32 +97,12 @@ def strip_herestrings(text):
 
 
 def unquote(match):
-    """A quoted path to gh or make becomes its name, other single words stay, prose goes."""
+    """A quoted path to gh or mise becomes its name, other single words stay, prose goes."""
     text = match.group()[1:-1]
     exe = QUOTED_EXE.search(text)
     if exe:
         return exe.group(1)
     return text if text and not any(c.isspace() for c in text) else "''"
-
-
-def make_targets(args):
-    """make's targets: not flags, flag values, VAR=value, $(...) or redirections."""
-    targets, skip = [], False
-    for word in args:
-        if skip:
-            skip = False
-            continue
-        redirect = REDIRECT.search(word)
-        if redirect and redirect.group() == word:
-            skip = True  # `> file`: the next word is the file
-            continue
-        if redirect:
-            word = word[: redirect.start()]  # `install>log`, or nothing for `>log`
-        if word in MAKE_VALUE_FLAGS:
-            skip = True
-        elif word and word[0] not in "-$" and "=" not in word and not word.isdigit():
-            targets.append(word)
-    return targets
 
 
 def installs(segment):
@@ -126,12 +111,8 @@ def installs(segment):
     plugins = PLUGINS.search(segment)
     if plugins and PLUGINS_INSTALL.search(segment, plugins.end() - 1):
         return True
-    make = MAKE.search(segment)
-    if not make:
-        return False
-    # The Makefile's first target is install, so a bare `make` installs too.
-    targets = make_targets(segment[make.end() :].split())
-    return not targets or any(t.lower().startswith("install") for t in targets)
+    mise = MISE.search(segment)
+    return bool(mise and INSTALL_TASK.search(segment, mise.end()))
 
 
 def check_command(command, cwd):
