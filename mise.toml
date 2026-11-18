@@ -1,3 +1,8 @@
+min_version = "2026.11.1" # the first release that reads mise.lock's lockfile_version 4
+
+[settings]
+lockfile = true
+
 [tools]
 make = "4.4.1"
 uv = "0.13.8"
