@@ -2,9 +2,18 @@ min_version = "2026.11.1" # the first release that reads mise.lock's lockfile_ve
 
 [settings]
 lockfile = true
+# `[deps]` below is experimental; without this, `mise exec`, `mise run` and `mise deps` error.
+experimental = true
 
 [tools]
 uv = "0.13.9"
+
+# `mise deps` runs `uv sync` when uv.lock or pyproject.toml changed or .venv is missing;
+# `mise exec`, `mise run` and mise's shims do it first too, `mise install` doesn't.
+# Not `--locked`: through a shim, that would fail `uv lock` itself after a pyproject.toml
+# edit. CI sets UV_LOCKED, so it still refuses a stale uv.lock.
+[deps.uv]
+auto = true
 
 # Picard must be closed; tools/install.py checks.
 [tasks.install-all]

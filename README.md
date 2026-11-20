@@ -67,6 +67,8 @@ uv run ruff format --check
 uv run ty check
 ```
 
+`mise deps` runs `uv sync` when `uv.lock` or `pyproject.toml` changed or `.venv` is missing, and `mise exec`, `mise run` and mise's shims run it first too.
+
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
 CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)); the tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails.
