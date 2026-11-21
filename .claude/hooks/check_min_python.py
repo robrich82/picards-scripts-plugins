@@ -45,7 +45,7 @@ def linked_path(file, prefix=""):
 def trusted_roots(project):
     """CLAUDE_PROJECT_DIR, its main checkout and the worktrees its git common dir records.
     Read from .git files, not `git rev-parse`, so it works without git on PATH. A worktree's own
-    .git is read only to confirm it still links back, as `git worktree prune` does: an entry
+    .git is read only to confirm it still links back, as `git worktree repair` does: an entry
     whose folder was deleted must not trust whatever later appears at that path."""
     roots = {project}  # its .claude/hooks run anyway, this one among them
     dot_git = project / ".git"
@@ -55,7 +55,11 @@ def trusted_roots(project):
     common = linked_path(common / "commondir") or common  # the project is a worktree
     if common.name == ".git":  # else bare or --separate-git-dir: no checkout beside it
         roots.add(common.parent)
-    for entry in common.glob("worktrees/*"):
+    try:
+        entries = list(common.glob("worktrees/*"))
+    except (OSError, ValueError):  # a NUL in .git gets this far on newer Pythons
+        return roots
+    for entry in entries:
         worktree_git = linked_path(entry / "gitdir")  # "<worktree>/.git"
         if worktree_git is not None and linked_path(worktree_git, "gitdir:") == entry:
             roots.add(worktree_git.parent)
