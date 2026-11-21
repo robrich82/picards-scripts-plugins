@@ -2,13 +2,15 @@
 
 The tool needs the dev group's vermin and a newer Python than hooks run on, so it runs through
 `uv run`. The repo comes from the file's path, so an edit in a worktree runs that worktree's tool
-(CLAUDE_PROJECT_DIR is the main checkout even then). It runs only when that root is
-CLAUDE_PROJECT_DIR's main checkout or a worktree git lists for it, not for a tools/ folder
-anywhere else, even one inside the repo. A worktree of a fork's branch still runs that branch's
-tools/. A file that
-per-file-target-version in pyproject.toml doesn't name passes silently; when uv or the tool can't
-run, Claude is told the file went unchecked, named or not. Edits made through a shell command
-are not seen.
+(CLAUDE_PROJECT_DIR is the session's checkout, not necessarily the edited file's).
+
+Running a root's tools/ runs its code, so only trusted_roots() are run; any other root holding the
+tool, even a folder inside this repo, gets a note instead. Trust is by location, not content: a
+worktree of a fork's branch still runs that branch's tools/.
+
+A file that per-file-target-version in pyproject.toml doesn't name passes silently; when uv or the
+tool can't run, Claude is told the file went unchecked, named or not. Edits made through a shell
+command are not seen.
 """
 
 import json
@@ -41,26 +43,27 @@ def linked_path(file, prefix=""):
 
 
 def trusted_roots(project):
-    """CLAUDE_PROJECT_DIR's main checkout and its worktrees, as its git common dir records them.
-    Read from .git, not `git rev-parse`, so it works without git on PATH. Only the project's own
-    .git is read, never one in the folder being checked, which anyone can point anywhere."""
+    """CLAUDE_PROJECT_DIR, its main checkout and the worktrees its git common dir records.
+    Read from .git files, not `git rev-parse`, so it works without git on PATH. A worktree's own
+    .git is read only to confirm it still links back, as `git worktree prune` does: an entry
+    whose folder was deleted must not trust whatever later appears at that path."""
+    roots = {project}  # its .claude/hooks run anyway, this one among them
     dot_git = project / ".git"
     common = dot_git.resolve() if dot_git.is_dir() else linked_path(dot_git, "gitdir:")
     if common is None:
-        return set()
+        return roots
     common = linked_path(common / "commondir") or common  # the project is a worktree
-    if common.name != ".git":  # bare or --separate-git-dir: no checkout beside it
-        return set()
-    roots = {common.parent}
-    for back_link in common.glob("worktrees/*/gitdir"):  # "<worktree>/.git"
-        worktree_git = linked_path(back_link)
-        if worktree_git is not None:
+    if common.name == ".git":  # else bare or --separate-git-dir: no checkout beside it
+        roots.add(common.parent)
+    for entry in common.glob("worktrees/*"):
+        worktree_git = linked_path(entry / "gitdir")  # "<worktree>/.git"
+        if worktree_git is not None and linked_path(worktree_git, "gitdir:") == entry:
             roots.add(worktree_git.parent)
     return roots
 
 
 def trusted(root):
-    """True when root is CLAUDE_PROJECT_DIR's main checkout or one of its worktrees."""
+    """True when root is one of trusted_roots()."""
     project = os.environ.get("CLAUDE_PROJECT_DIR")
     return bool(project) and root.resolve() in trusted_roots(Path(project).resolve())
 
@@ -87,8 +90,13 @@ def main():
     if path is None or path.suffix != ".py" or not path.is_file():
         return 0
     root = repo_root(path)
-    if root is None or not (root / TOOL).is_file() or not trusted(root):
+    if root is None or not (root / TOOL).is_file():
         return 0
+    if not trusted(root):
+        return note(
+            f"{path.name} was not checked for newer stdlib APIs: {root} is not "
+            "CLAUDE_PROJECT_DIR or one of its git worktrees, so its tools/ were not run."
+        )
     uv = shutil.which("uv")
     if uv is None:
         return note(
@@ -109,6 +117,10 @@ def main():
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not checked for newer stdlib APIs: timed out.")
+    except OSError as error:
+        return note(
+            f"{path.name} was not checked for newer stdlib APIs: uv did not start ({error})."
+        )
     # The tool exits 1 both for violations, which vermin prints on stdout, and on a crash.
     if result.returncode == 1 and result.stdout.strip():
         sys.stderr.write(

@@ -23,7 +23,7 @@ REPO = "robrich82/picards-scripts-plugins"
 
 
 def run_hook(name, stdin, env=None):
-    # check_min_python.py runs only in CLAUDE_PROJECT_DIR's repo.
+    # Pin CLAUDE_PROJECT_DIR to this repo: check_min_python.py runs only there.
     env = dict(os.environ if env is None else env, CLAUDE_PROJECT_DIR=str(ROOT))
     return subprocess.run(
         [sys.executable, str(HOOKS / name)],
@@ -370,13 +370,6 @@ def test_check_min_python_skips_files_the_table_does_not_name(in_repo):
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
-def test_check_min_python_skips_a_repo_without_the_tool(bare_repo):
-    path = bare_repo / "example.py"
-    path.write_text(NEW_API)
-    result = run_after_edit("check_min_python.py", path)
-    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
-
-
 def test_check_min_python_says_when_uv_is_missing(in_repo):
     path = in_repo / "example.py"
     path.write_text("x = 1\n")
@@ -387,13 +380,15 @@ def test_check_min_python_says_when_uv_is_missing(in_repo):
 
 
 @pytest.fixture
-def tool_run(in_repo, monkeypatch):
-    """A .py file in this repo and a fake subprocess.run: set .result or .error, read .calls."""
+def tool_run(in_repo, monkeypatch, capsys):
+    """A .py file in this repo and a fake subprocess.run: set .result or .error, read .calls.
+    .edit(path) runs the hook on path and returns (exit code, the note to Claude or None)."""
     path = in_repo / "example.py"
     path.write_text("x = 1\n")
     monkeypatch.setattr(shutil, "which", lambda name: "uv")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(ROOT))
-    run = SimpleNamespace(path=path, calls=[], result=None, error=None)
+    passed = subprocess.CompletedProcess([], 0, "", "")
+    run = SimpleNamespace(path=path, calls=[], result=passed, error=None)
 
     def fake_run(args, **kwargs):
         run.calls.append((args, kwargs))
@@ -402,20 +397,21 @@ def tool_run(in_repo, monkeypatch):
         return run.result
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    run.edit = lambda path: call_after_edit(
+        monkeypatch, capsys, "check_min_python.py", path
+    )
     return run
 
 
 def fake_repo(folder, git=None):
-    """A folder holding the hook's tool and an example.py, with a .git folder, a .git file of
-    this text or bytes, or (git="") no .git at all."""
+    """A folder holding stubs of the hook's tool and an example.py, whose path it returns.
+    Its .git is a folder, or a file of this text."""
     (folder / "tools").mkdir(parents=True)
     for name in ("run_tests.py", "check_min_python.py"):
         (folder / "tools" / name).write_text("")
     if git is None:
         (folder / ".git").mkdir()
-    elif isinstance(git, bytes):
-        (folder / ".git").write_bytes(git)
-    elif git:
+    else:
         (folder / ".git").write_text(git)
     (folder / "example.py").write_text("x = 1\n")
     return folder / "example.py"
@@ -424,20 +420,22 @@ def fake_repo(folder, git=None):
 @pytest.fixture
 def project(tmp_path):
     """A main checkout with worktree wt (absolute links, as git writes by default) and wt2
-    (relative links, as worktree.useRelativePaths writes), plus a garbage back-link git lists
-    for no worktree."""
+    (relative links, as worktree.useRelativePaths writes). Two more entries must be skipped:
+    one whose back-link is unreadable, and one whose folder was deleted without a prune."""
     tmp = tmp_path.resolve()
     fake_repo(tmp / "main")
     common = tmp / "main" / ".git"
     for name, dot_git, back_link in [
         ("wt", f"gitdir: {common / 'worktrees' / 'wt'}\n", f"{tmp / 'wt' / '.git'}\n"),
         ("wt2", "gitdir: ../main/.git/worktrees/wt2\n", "../../../../wt2/.git\n"),
+        ("gone", None, f"{tmp / 'gone' / '.git'}\n"),
     ]:
         git_dir = common / "worktrees" / name
         git_dir.mkdir(parents=True)
         (git_dir / "commondir").write_text("../..\n")
         (git_dir / "gitdir").write_text(back_link)
-        fake_repo(tmp / name, git=dot_git)
+        if dot_git:
+            fake_repo(tmp / name, git=dot_git)
     (common / "worktrees" / "broken").mkdir()
     (common / "worktrees" / "broken" / "gitdir").write_bytes(b"\xff\xfe garbage")
     return tmp
@@ -450,18 +448,50 @@ def test_trusted_roots_are_the_main_checkout_and_its_worktrees(project):
         assert hook.trusted_roots(folder) == roots
 
 
+@pytest.mark.parametrize("relative", ["false", "true"], ids=["absolute", "relative"])
+def test_trusted_roots_read_what_git_worktree_add_writes(tmp_path, relative):
+    tmp = tmp_path.resolve()
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    git = ["git", "-c", f"worktree.useRelativePaths={relative}", "-C", str(tmp)]
+    for args in (
+        ["init", "-q", "main"],
+        ["-C", "main", "worktree", "add", "-q", "--orphan", "-b", "wt", "../wt"],
+    ):
+        subprocess.run(git + args, env=env, check=True, capture_output=True)
+    hook = load_hook("check_min_python.py")
+    roots = {tmp / "main", tmp / "wt"}
+    for folder in roots:
+        assert hook.trusted_roots(folder) == roots
+
+
+@pytest.mark.parametrize(
+    "git",
+    [None, b"\xff\xfe garbage", b"not a link\n", b"gitdir:\n"],
+    ids=["no-git", "garbage", "no-gitdir", "empty-gitdir"],
+)
+def test_trusted_roots_fall_back_to_the_project_alone(tmp_path, git):
+    """Its .claude/hooks run anyway, so it is trusted even when its git links can't be read."""
+    if git is not None:
+        (tmp_path / ".git").write_bytes(git)
+    assert load_hook("check_min_python.py").trusted_roots(tmp_path) == {tmp_path}
+
+
+def test_trusted_roots_skip_the_folder_above_a_git_dir_not_named_dot_git(tmp_path):
+    """--separate-git-dir or a bare repo: no checkout sits beside the git dir."""
+    project = tmp_path.resolve() / "project"
+    project.mkdir()
+    (project / ".git").write_text("gitdir: ../store\n")
+    (tmp_path / "store").mkdir()
+    assert load_hook("check_min_python.py").trusted_roots(project) == {project}
+
+
 @pytest.mark.parametrize("folder", ["main", "wt", "wt2"])
-@pytest.mark.parametrize("project_dir", ["main", "wt"])
 def test_check_min_python_runs_a_worktree_s_own_tool(
-    tool_run, monkeypatch, capsys, project, folder, project_dir
+    tool_run, monkeypatch, project, folder
 ):
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / project_dir))
-    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "main"))
     path = project / folder / "example.py"
-    assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
-        0,
-        None,
-    )
+    assert tool_run.edit(path) == (0, None)
     [(args, _)] = tool_run.calls
     assert args[5:8] == [
         str(path.parent),
@@ -470,68 +500,57 @@ def test_check_min_python_runs_a_worktree_s_own_tool(
     ]
 
 
+def test_check_min_python_skips_a_worktree_without_the_tool(
+    tool_run, monkeypatch, project
+):
+    """A worktree of a branch from before the tool existed."""
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "main"))
+    (project / "wt" / "tools" / "check_min_python.py").unlink()
+    assert tool_run.edit(project / "wt" / "example.py") == (0, None)
+    assert tool_run.calls == []
+
+
 @pytest.mark.parametrize(
     ("folder", "git"),
     [
         ("other", None),
-        ("main/.picard/evil", ""),
+        ("main/.picard/evil", None),
+        ("gone", None),
         ("evil", "gitdir: {project}/main/.git\n"),
         ("evil", "gitdir: {project}/main/.git/worktrees/wt\n"),
         ("evil", "gitdir: ../main/.git\n"),
-        ("evil", b"\xff\xfe garbage"),
+        ("evil", "gitdir: {project}/evil-git/worktrees/evil\n"),
     ],
     ids=[
         "another-repo",
         "a-folder-inside-the-repo",
+        "a-clone-where-a-deleted-worktree-was",
         "gitdir-to-the-common-dir",
         "gitdir-to-a-worktree-s-git-dir",
         "relative-gitdir",
-        "garbage-git-file",
+        "gitdir-to-its-own-git-dir-that-lists-it",
     ],
 )
 def test_check_min_python_never_runs_another_folder_s_tool(
-    tool_run, monkeypatch, capsys, project, folder, git
+    tool_run, monkeypatch, project, folder, git
 ):
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "main"))
-    # So that a missing check fails on the calls, not on a None result.
-    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
-    if isinstance(git, str):
-        git = git.format(project=project)
-    path = fake_repo(project / folder, git=git)
-    assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
-        0,
-        None,
+    own_git_dir = project / "evil-git" / "worktrees" / "evil"
+    own_git_dir.mkdir(parents=True)
+    (own_git_dir / "gitdir").write_text(f"{project / 'evil' / '.git'}\n")
+    (own_git_dir / "commondir").write_text("../..\n")
+    path = fake_repo(project / folder, git=git and git.format(project=project))
+    code, note = tool_run.edit(path)
+    assert code == 0
+    assert note == (
+        f"example.py was not checked for newer stdlib APIs: {path.parent} is not "
+        "CLAUDE_PROJECT_DIR or one of its git worktrees, so its tools/ were not run."
     )
     assert tool_run.calls == []
 
 
-@pytest.mark.parametrize(
-    "git",
-    [b"\xff\xfe garbage", "not a link\n", "gitdir:\n", "gitdir: ../separate.git\n"],
-    ids=["garbage", "no-gitdir", "empty-gitdir", "separate-git-dir"],
-)
-def test_check_min_python_trusts_nothing_without_a_project_checkout(
-    tool_run, monkeypatch, capsys, tmp_path, git
-):
-    """A project whose .git can't be read, or whose git dir has no checkout beside it."""
-    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
-    (tmp_path / "separate.git").mkdir()
-    path = fake_repo(tmp_path / "project", git=git)
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(path.parent))
-    assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
-        0,
-        None,
-    )
-    assert tool_run.calls == []
-
-
-def test_check_min_python_runs_the_repo_s_tool_through_uv(
-    tool_run, monkeypatch, capsys
-):
-    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
-    assert call_after_edit(
-        monkeypatch, capsys, "check_min_python.py", tool_run.path
-    ) == (0, None)
+def test_check_min_python_runs_the_repo_s_tool_through_uv(tool_run):
+    assert tool_run.edit(tool_run.path) == (0, None)
     [(args, kwargs)] = tool_run.calls
     assert args == [
         "uv",
@@ -548,27 +567,27 @@ def test_check_min_python_runs_the_repo_s_tool_through_uv(
     assert kwargs["timeout"] < check_min_python_hook()["timeout"]
 
 
+@pytest.mark.parametrize("project_dir", [None, ""], ids=["unset", "empty"])
 def test_check_min_python_runs_nothing_without_claude_project_dir(
-    tool_run, monkeypatch, capsys
+    tool_run, monkeypatch, project_dir
 ):
-    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
-    monkeypatch.delenv("CLAUDE_PROJECT_DIR")
-    assert call_after_edit(
-        monkeypatch, capsys, "check_min_python.py", tool_run.path
-    ) == (0, None)
+    """settings.json passes an unset CLAUDE_PROJECT_DIR as "": it must not mean the cwd."""
+    if project_dir is None:
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR")
+    else:
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", project_dir)
+    monkeypatch.chdir(ROOT)
+    code, note = tool_run.edit(tool_run.path)
+    assert code == 0
+    assert note and "so its tools/ were not run" in note
     assert tool_run.calls == []
 
 
-def test_check_min_python_runs_nothing_for_stubs_or_missing_files(
-    tool_run, monkeypatch, capsys
-):
+def test_check_min_python_runs_nothing_for_stubs_or_missing_files(tool_run):
     stub = tool_run.path.with_suffix(".pyi")
-    stub.write_text(NEW_API)
+    stub.write_text("")
     for path in (stub, tool_run.path.with_name("missing.py")):
-        assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
-            0,
-            None,
-        )
+        assert tool_run.edit(path) == (0, None)
     assert tool_run.calls == []
 
 
@@ -583,25 +602,29 @@ def test_check_min_python_runs_nothing_for_stubs_or_missing_files(
     ids=["crash", "blank-stdout", "uv-failure", "other-exit-with-stdout"],
 )
 def test_check_min_python_says_when_the_check_fails(
-    tool_run, monkeypatch, capsys, returncode, stdout, stderr, shown
+    tool_run, returncode, stdout, stderr, shown
 ):
     tool_run.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
-    code, note = call_after_edit(
-        monkeypatch, capsys, "check_min_python.py", tool_run.path
-    )
-    assert code == 0
-    assert note == (
-        f"example.py was not checked for newer stdlib APIs: the check failed ({shown})."
+    assert tool_run.edit(tool_run.path) == (
+        0,
+        f"example.py was not checked for newer stdlib APIs: the check failed ({shown}).",
     )
 
 
-def test_check_min_python_says_when_the_check_times_out(tool_run, monkeypatch, capsys):
-    tool_run.error = subprocess.TimeoutExpired([], 50)
-    code, note = call_after_edit(
-        monkeypatch, capsys, "check_min_python.py", tool_run.path
+@pytest.mark.parametrize(
+    ("error", "shown"),
+    [
+        (subprocess.TimeoutExpired([], 50), "timed out"),
+        (OSError("Access is denied"), "uv did not start (Access is denied)"),
+    ],
+    ids=["timeout", "uv-does-not-start"],
+)
+def test_check_min_python_says_when_uv_does_not_finish(tool_run, error, shown):
+    tool_run.error = error
+    assert tool_run.edit(tool_run.path) == (
+        0,
+        f"example.py was not checked for newer stdlib APIs: {shown}.",
     )
-    assert code == 0
-    assert note == "example.py was not checked for newer stdlib APIs: timed out."
 
 
 def settings_hooks():
