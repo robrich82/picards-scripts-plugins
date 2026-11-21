@@ -64,14 +64,17 @@ To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py
 
 ## Lint, format and type check
 
-[Ruff](https://docs.astral.sh/ruff/) and [ty](https://docs.astral.sh/ty/) are pinned in `uv.lock`:
+[Ruff](https://docs.astral.sh/ruff/), [ty](https://docs.astral.sh/ty/) and [vermin](https://github.com/netromdk/vermin) are pinned in `uv.lock`:
 
 ```sh
 uv sync --locked
 uv run ruff check
 uv run ruff format --check
 uv run ty check
+uv run python tools/check_min_python.py
 ```
+
+`check_min_python.py` runs vermin on the files `per-file-target-version` in `pyproject.toml` keeps on an older Python, catching stdlib APIs newer than their target that Ruff doesn't. The tests run it too. Mark a call that a version check guards with `# novermin`.
 
 `mise deps` runs `uv sync` when `uv.lock` or `pyproject.toml` changed or `.venv` is missing, and `mise exec`, `mise run` and mise's shims run it first too.
 
