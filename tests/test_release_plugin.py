@@ -290,26 +290,32 @@ def test_main_pushes_to_the_named_remote(repo, monkeypatch, tmp_path):
 def test_picard_installs_a_release_and_updates_to_the_next(repo, tmp_path):
     """What the README tells users to do, through Picard's own plugin manager.
 
-    From a file:// remote, Picard fetches new tags before updating; from GitHub it needs the
-    refresh the README describes first.
+    Released into a non-bare repo: Picard clones a local folder only when it has a .git, and
+    reads a file:// URL as a folder on Linux but not on Windows. From a local repo it fetches new
+    tags before updating; from GitHub it needs the refresh the README describes first.
     """
     from picard.plugin3.manager import PluginManager
     from picard.plugin3.plugin import Plugin
 
-    work, remote = repo
-    release(work)
+    work, _ = repo
+    source = tmp_path / "source"
+    git(
+        tmp_path, "init", "-q", "-b", "main", str(source)
+    )  # main unborn, so pushes land
+    git(work, "remote", "add", "source", str(source))
+    release_plugin.release(work, "source")
     manager = PluginManager(Mock(webservice=Mock(), register_cleanup=Mock()))
     manager._primary_plugin_dir = tmp_path / "plugins3"  # not the user's plugin folder
     manager._primary_plugin_dir.mkdir()
     try:
-        plugin_id = manager.install_plugin(remote.as_uri(), ref="v1.0.0")
+        plugin_id = manager.install_plugin(str(source), ref="v1.0.0")
         plugin = Plugin(manager._primary_plugin_dir, plugin_id)
         plugin.read_manifest()
         assert plugin.manifest
         assert str(plugin.manifest.version) == "1.0.0.final0"
 
         commit(work, "1.1.0")
-        release(work)
+        release_plugin.release(work, "source")
         result = manager.update_plugin(plugin)
         assert (result.old_ref_item.shortname, result.new_ref_item.shortname) == (
             "v1.0.0",
