@@ -17,5 +17,5 @@ uv run ty check                           # needs one run_tests.py first: reads 
 - `tools/run_tests.py` and `tools/install.py` run on the system Python before the test venv exists, so keep them 3.9-compatible.
 - Don't run the `mise run install-*` tasks / `tools/install.py` unless asked: they write the user's real Picard config and plugin folder.
 - Behaviour is documented in the README tables and, for the plugin, `MANIFEST.toml` `long_description`. Update them in the same change. In self-review of such a change, dispatch the `behaviour-docs-reviewer` agent with the base ref.
-- Never create a version-shaped tag (`v1.2.3`) or a GitHub release by hand; see README's "Releasing the plugin".
+- Never create a tag Picard reads as a version (`v1.2.3`, `2.0`, `release-1.2`…) or a GitHub release by hand; see README's "Releasing the plugin".
 - Tagger scripts run in filename order (04 before 05 matters). A script that writes a new tag needs it added to `WRITTEN` in `tests/test_tagger_scripts.py`.
