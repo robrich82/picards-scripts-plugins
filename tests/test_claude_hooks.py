@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / ".claude" / "hooks"
 SETTINGS = ROOT / ".claude" / "settings.json"
 SCRIPT_FILES = sorted((ROOT / "tagger-scripts").glob("*.ptsp"))
-POST_EDIT_HOOKS = ["check_ptsp.py", "ruff_format.py"]
+POST_EDIT_HOOKS = ["check_ptsp.py", "ruff_format.py", "check_min_python.py"]
 REPO = "robrich82/picards-scripts-plugins"
 
 
@@ -310,6 +310,129 @@ def test_ruff_format_says_when_ruff_times_out(py_file_with_uv, monkeypatch, caps
     assert code == 0
     assert note == "example.py was not formatted: Ruff timed out."
     assert len(commands) == 2  # --version, then format; the import sort never runs
+
+
+NEW_API = 'import shutil\nshutil.rmtree("x", onexc=None)\n'  # 3.12
+
+
+@pytest.fixture
+def in_plugins():
+    """A scratch folder under plugins/, which per-file-target-version holds to 3.10."""
+    with tempfile.TemporaryDirectory(dir=ROOT / "plugins", prefix="hook-test-") as tmp:
+        yield Path(tmp)
+
+
+def test_check_min_python_passes_a_real_file():
+    result = run_after_edit("check_min_python.py", ROOT / "tools" / "run_tests.py")
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_check_min_python_reports_a_newer_api_with_its_line(in_plugins):
+    path = in_plugins / "example.py"
+    path.write_text(NEW_API)
+    result = run_after_edit("check_min_python.py", path, tool_name="Write")
+    assert result.returncode == 2
+    assert result.stderr.startswith("example.py uses something newer")
+    assert "L2: 'shutil.rmtree(onexc)' requires !2, 3.12" in result.stderr
+
+
+def test_check_min_python_skips_files_the_table_does_not_name(in_repo):
+    path = in_repo / "example.py"  # under .picard/, which no glob names
+    path.write_text(NEW_API)
+    result = run_after_edit("check_min_python.py", path)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_check_min_python_skips_a_repo_without_the_tool(bare_repo):
+    path = bare_repo / "example.py"
+    path.write_text(NEW_API)
+    result = run_after_edit("check_min_python.py", path)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_check_min_python_says_when_uv_is_missing(in_plugins):
+    path = in_plugins / "example.py"
+    path.write_text(NEW_API)
+    env = dict(os.environ, PATH=str(in_plugins))
+    assert "uv is not on PATH" in context(
+        run_after_edit("check_min_python.py", path, env=env)
+    )
+
+
+@pytest.fixture
+def tool_run(in_repo, monkeypatch):
+    """A .py file in this repo and a fake subprocess.run: set .result or .error, read .args."""
+    path = in_repo / "example.py"
+    path.write_text("x = 1\n")
+    monkeypatch.setattr(shutil, "which", lambda name: "uv")
+    run = SimpleNamespace(path=path, args=None, result=None, error=None)
+
+    def fake_run(args, **kwargs):
+        run.args = args
+        if run.error:
+            raise run.error
+        return run.result
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return run
+
+
+def test_check_min_python_runs_the_tool_of_the_file_s_repo(
+    tool_run, monkeypatch, capsys
+):
+    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(
+                json.dumps({"tool_input": {"file_path": str(tool_run.path)}}).encode()
+            )
+        ),
+    )
+    assert load_hook("check_min_python.py").main() == 0
+    assert tool_run.args[-3:] == [
+        "python",
+        str(ROOT / "tools" / "check_min_python.py"),
+        str(tool_run.path),
+    ]
+    assert tool_run.args[tool_run.args.index("--project") + 1] == str(ROOT)
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    ("code", "stdout", "stderr", "shown"),
+    [
+        (1, "", "Traceback\nKeyError: 'tool'\n", "KeyError: 'tool'"),
+        (1, "  \n", "", "no output"),
+        (
+            2,
+            "",
+            "error: Failed to spawn: `python`\n",
+            "error: Failed to spawn: `python`",
+        ),
+    ],
+)
+def test_check_min_python_says_when_the_check_fails(
+    tool_run, monkeypatch, capsys, code, stdout, stderr, shown
+):
+    tool_run.result = subprocess.CompletedProcess([], code, stdout, stderr)
+    code, note = call_after_edit(
+        monkeypatch, capsys, "check_min_python.py", tool_run.path
+    )
+    assert code == 0
+    assert note == (
+        f"example.py was not checked for newer stdlib APIs: the check failed ({shown})."
+    )
+
+
+def test_check_min_python_says_when_the_check_times_out(tool_run, monkeypatch, capsys):
+    tool_run.error = subprocess.TimeoutExpired([], 50)
+    code, note = call_after_edit(
+        monkeypatch, capsys, "check_min_python.py", tool_run.path
+    )
+    assert code == 0
+    assert note == "example.py was not checked for newer stdlib APIs: timed out."
 
 
 def settings_hooks():

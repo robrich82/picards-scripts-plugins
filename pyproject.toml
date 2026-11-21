@@ -36,6 +36,7 @@ extra-paths = [".picard/src", ".picard/src/test", "tools"]
 [tool.coverage.run]
 source_dirs = ["tools", "plugins", ".claude/hooks"]
 patch = ["subprocess"]  # the hook tests run .claude/hooks/*.py as subprocesses
+omit = ["plugins/hook-test-*/*"]  # a hook test's scratch files, gone before the report
 branch = true
 data_file = ".picard/coverage/.coverage"
 
