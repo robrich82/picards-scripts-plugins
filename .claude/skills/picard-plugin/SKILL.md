@@ -24,7 +24,7 @@ A plugin runs on Picard's own Python, whose minimum is `requires-python` in `.pi
 
 ## Versions and releases
 
-README's "Releasing the plugin" is the source of truth. In short: raising `version` and merging to `main` releases it as tag `v<version>`, while a merge without a bump only moves the `dist/` branch. Bump when a change should reach users who install from a tag. Use semver: patch for a fix, minor for new behaviour, major for a change a user must react to. Never create a tag or release by hand.
+README's "Releasing the plugin" says how a `version` bump releases. Bump in the change itself when it should reach users who install from a tag: patch for a fix, minor for new behaviour, major for a change a user must react to.
 
 ## Tests
 
