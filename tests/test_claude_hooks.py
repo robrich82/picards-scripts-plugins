@@ -23,6 +23,8 @@ REPO = "robrich82/picards-scripts-plugins"
 
 
 def run_hook(name, stdin, env=None):
+    # check_min_python.py runs only in CLAUDE_PROJECT_DIR's repo.
+    env = dict(os.environ if env is None else env, CLAUDE_PROJECT_DIR=str(ROOT))
     return subprocess.run(
         [sys.executable, str(HOOKS / name)],
         input=stdin,
@@ -58,12 +60,14 @@ def load_hook(name):
 
 def call_after_edit(monkeypatch, capsys, name, file_path):
     """A post-edit hook's main() in-process, so a test can fake what it runs.
-    Returns (exit code, the note to Claude)."""
+    Returns (exit code, the note to Claude or None)."""
     payload = json.dumps({"tool_input": {"file_path": str(file_path)}}).encode()
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(payload)))
     code = load_hook(name).main()
-    output = json.loads(capsys.readouterr().out)
-    return code, output["hookSpecificOutput"]["additionalContext"]
+    out = capsys.readouterr().out
+    if not out:
+        return code, None
+    return code, json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
 @pytest.fixture
@@ -322,21 +326,44 @@ def in_plugins():
         yield Path(tmp)
 
 
-def test_check_min_python_passes_a_real_file():
+def needs_uv():
+    assert shutil.which("uv"), "uv must be on PATH for the check_min_python tests"
+
+
+def check_min_python_hook():
+    return next(
+        h for _, _, h in settings_hooks() if "check_min_python.py" in h["command"]
+    )
+
+
+def test_check_min_python_passes_a_py39_file():
+    needs_uv()
     result = run_after_edit("check_min_python.py", ROOT / "tools" / "run_tests.py")
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
 def test_check_min_python_reports_a_newer_api_with_its_line(in_plugins):
+    needs_uv()
     path = in_plugins / "example.py"
     path.write_text(NEW_API)
     result = run_after_edit("check_min_python.py", path, tool_name="Write")
     assert result.returncode == 2
-    assert result.stderr.startswith("example.py uses something newer")
+    assert result.stderr.startswith("example.py uses a stdlib API newer than")
     assert "L2: 'shutil.rmtree(onexc)' requires !2, 3.12" in result.stderr
 
 
+def test_settings_command_runs_check_min_python(in_plugins):
+    needs_uv()
+    path = in_plugins / "example.py"
+    path.write_text(NEW_API)
+    stdin = json.dumps({"tool_input": {"file_path": str(path)}})
+    result = run_settings_command(check_min_python_hook(), ROOT, stdin)
+    assert result.returncode == 2
+    assert "L2: 'shutil.rmtree(onexc)'" in result.stderr
+
+
 def test_check_min_python_skips_files_the_table_does_not_name(in_repo):
+    needs_uv()
     path = in_repo / "example.py"  # under .picard/, which no glob names
     path.write_text(NEW_API)
     result = run_after_edit("check_min_python.py", path)
@@ -350,10 +377,10 @@ def test_check_min_python_skips_a_repo_without_the_tool(bare_repo):
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
-def test_check_min_python_says_when_uv_is_missing(in_plugins):
-    path = in_plugins / "example.py"
-    path.write_text(NEW_API)
-    env = dict(os.environ, PATH=str(in_plugins))
+def test_check_min_python_says_when_uv_is_missing(in_repo):
+    path = in_repo / "example.py"
+    path.write_text("x = 1\n")
+    env = dict(os.environ, PATH=str(in_repo))
     assert "uv is not on PATH" in context(
         run_after_edit("check_min_python.py", path, env=env)
     )
@@ -361,14 +388,15 @@ def test_check_min_python_says_when_uv_is_missing(in_plugins):
 
 @pytest.fixture
 def tool_run(in_repo, monkeypatch):
-    """A .py file in this repo and a fake subprocess.run: set .result or .error, read .args."""
+    """A .py file in this repo and a fake subprocess.run: set .result or .error, read .calls."""
     path = in_repo / "example.py"
     path.write_text("x = 1\n")
     monkeypatch.setattr(shutil, "which", lambda name: "uv")
-    run = SimpleNamespace(path=path, args=None, result=None, error=None)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(ROOT))
+    run = SimpleNamespace(path=path, calls=[], result=None, error=None)
 
     def fake_run(args, **kwargs):
-        run.args = args
+        run.calls.append((args, kwargs))
         if run.error:
             raise run.error
         return run.result
@@ -377,46 +405,119 @@ def tool_run(in_repo, monkeypatch):
     return run
 
 
-def test_check_min_python_runs_the_tool_of_the_file_s_repo(
+def fake_repo(folder, git=None):
+    """A repo holding the hook's tool and an example.py; .git is a folder, or a worktree's
+    .git file with this text."""
+    (folder / "tools").mkdir(parents=True)
+    for name in ("run_tests.py", "check_min_python.py"):
+        (folder / "tools" / name).write_text("")
+    if git is None:
+        (folder / ".git").mkdir()
+    else:
+        (folder / ".git").write_text(git)
+    (folder / "example.py").write_text("x = 1\n")
+    return folder / "example.py"
+
+
+def test_check_min_python_runs_the_repo_s_tool_through_uv(
     tool_run, monkeypatch, capsys
 ):
     tool_run.result = subprocess.CompletedProcess([], 0, "", "")
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        io.TextIOWrapper(
-            io.BytesIO(
-                json.dumps({"tool_input": {"file_path": str(tool_run.path)}}).encode()
-            )
-        ),
-    )
-    assert load_hook("check_min_python.py").main() == 0
-    assert tool_run.args[-3:] == [
+    assert call_after_edit(
+        monkeypatch, capsys, "check_min_python.py", tool_run.path
+    ) == (0, None)
+    [(args, kwargs)] = tool_run.calls
+    assert args == [
+        "uv",
+        "run",
+        "--frozen",
+        "--quiet",
+        "--project",
+        str(ROOT),
         "python",
         str(ROOT / "tools" / "check_min_python.py"),
         str(tool_run.path),
     ]
-    assert tool_run.args[tool_run.args.index("--project") + 1] == str(ROOT)
-    assert capsys.readouterr().out == ""
+    assert kwargs["env"]["PYTHONUTF8"] == "1"
+    assert kwargs["timeout"] < check_min_python_hook()["timeout"]
+
+
+def test_check_min_python_runs_a_worktree_s_own_tool(
+    tool_run, monkeypatch, capsys, tmp_path
+):
+    main = tmp_path.resolve() / "main"
+    fake_repo(main)
+    git_dir = main / ".git" / "worktrees" / "wt"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n")
+    path = fake_repo(tmp_path.resolve() / "wt", git=f"gitdir: {git_dir}\n")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(main))
+    tool_run.result = subprocess.CompletedProcess([], 0, "", "")
+    assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
+        0,
+        None,
+    )
+    [(args, _)] = tool_run.calls
+    assert args[5:8] == [
+        str(path.parent),
+        "python",
+        str(path.parent / "tools" / "check_min_python.py"),
+    ]
+
+
+def test_check_min_python_never_runs_another_repo_s_tool(
+    tool_run, monkeypatch, capsys, tmp_path
+):
+    other = fake_repo(tmp_path / "other")
+    assert call_after_edit(monkeypatch, capsys, "check_min_python.py", other) == (
+        0,
+        None,
+    )
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR")
+    assert call_after_edit(
+        monkeypatch, capsys, "check_min_python.py", tool_run.path
+    ) == (0, None)
+    assert tool_run.calls == []
+
+
+def test_check_min_python_runs_nothing_for_stubs_or_missing_files(
+    tool_run, monkeypatch, capsys
+):
+    stub = tool_run.path.with_suffix(".pyi")
+    stub.write_text(NEW_API)
+    for path in (stub, tool_run.path.with_name("missing.py")):
+        assert call_after_edit(monkeypatch, capsys, "check_min_python.py", path) == (
+            0,
+            None,
+        )
+    assert tool_run.calls == []
+
+
+def test_common_dir_follows_a_relative_gitdir_and_stops_at_the_root(tmp_path):
+    (tmp_path / "main" / ".git").mkdir(parents=True)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / ".git").write_text("gitdir: ../main/.git\n")
+    hook = load_hook("check_min_python.py")
+    main_git = (tmp_path / "main" / ".git").resolve()
+    assert hook.common_dir(tmp_path / "sub" / "x.py") == main_git
+    nowhere = Path(tmp_path.anchor) / "no-such-folder-for-check-min-python" / "x.py"
+    assert hook.common_dir(nowhere) is None
 
 
 @pytest.mark.parametrize(
-    ("code", "stdout", "stderr", "shown"),
+    ("returncode", "stdout", "stderr", "shown"),
     [
         (1, "", "Traceback\nKeyError: 'tool'\n", "KeyError: 'tool'"),
         (1, "  \n", "", "no output"),
-        (
-            2,
-            "",
-            "error: Failed to spawn: `python`\n",
-            "error: Failed to spawn: `python`",
-        ),
+        (2, "", "error: Failed to spawn\n", "error: Failed to spawn"),
+        (2, "not violations\n", "", "no output"),
     ],
+    ids=["crash", "blank-stdout", "uv-failure", "other-exit-with-stdout"],
 )
 def test_check_min_python_says_when_the_check_fails(
-    tool_run, monkeypatch, capsys, code, stdout, stderr, shown
+    tool_run, monkeypatch, capsys, returncode, stdout, stderr, shown
 ):
-    tool_run.result = subprocess.CompletedProcess([], code, stdout, stderr)
+    tool_run.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
     code, note = call_after_edit(
         monkeypatch, capsys, "check_min_python.py", tool_run.path
     )
