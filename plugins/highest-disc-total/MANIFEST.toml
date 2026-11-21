@@ -1,5 +1,6 @@
 uuid = "c902f1fc-0f48-4540-beb1-51cf07da0b45"
 name = "Highest Disc Total"
+version = "1.0.0"
 description = "Renumber discs and set Total Discs so discs without matched files leave no gap"
 long_description = """
 Sets Total Discs to the number of discs with matched files and renumbers later discs to close

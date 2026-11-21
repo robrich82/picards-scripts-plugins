@@ -1,0 +1,38 @@
+name: Release plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugins/highest-disc-total/**
+      - tools/release_plugin.py
+      - .github/workflows/release-plugin.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the dist branch and tag, create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # git subtree split walks the plugin folder's whole history
+          persist-credentials: true # tools/release_plugin.py pushes with it; nothing else runs here
+      - id: release
+        run: python3 tools/release_plugin.py
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "Highest Disc Total $TAG" --notes "Install in Picard 3: Options → Plugins → Install Plugin… → URL, with Git URL \`https://github.com/$GH_REPO\` and Ref/Tag \`$TAG\`.
+
+          Or: \`picard-cli plugins install https://github.com/$GH_REPO --ref $TAG\`"

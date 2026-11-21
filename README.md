@@ -34,13 +34,19 @@ By hand: Options → Options… → Scripting. Tick **Enable Tagger Script(s)** 
 
 ### Installing a plugin
 
-With Picard closed, run `mise run install-plugin`. It copies the plugin to `local-plugins` in Picard's data folder (`%APPDATA%\MusicBrainz` on Windows) and registers it with `picard-cli`; run it again to update, which also re-enables the plugin if you'd disabled it. `PICARD_CLI` sets the path to `picard-cli` when it isn't on `PATH` or in the default Windows install folder.
+From GitHub, so Picard can update it: Options → Options… → Plugins → **Install Plugin…**, then the **URL** tab, with Git URL `https://github.com/robrich82/picards-scripts-plugins` and Ref/Tag set to the [latest release](https://github.com/robrich82/picards-scripts-plugins/releases/latest)'s tag, e.g. `v1.0.0`. Or, with Picard closed, `picard-cli plugins install https://github.com/robrich82/picards-scripts-plugins --ref v1.0.0`. Leave out the tag and the install fails: `main` has no plugin at its root. **Update** in the plugin list moves to the newest release; tick Options → General → Startup → **Check for plugin updates during startup** to be told when there is one. For changes not yet released, use the ref `dist/highest-disc-total` instead. A plugin already installed from this checkout has to be uninstalled first.
+
+From this checkout: with Picard closed, run `mise run install-plugin`. It copies the plugin to `local-plugins` in Picard's data folder (`%APPDATA%\MusicBrainz` on Windows) and registers it with `picard-cli`; run it again to update, which also re-enables the plugin if you'd disabled it. `PICARD_CLI` sets the path to `picard-cli` when it isn't on `PATH` or in the default Windows install folder.
 
 By hand: Picard runs a local plugin from the folder you give it, without copying it, so first copy `plugins/highest-disc-total` somewhere it can stay (e.g. `%APPDATA%\MusicBrainz\local-plugins\`).
 
 Options → Options… → Plugins → **Install Plugin…**, then the **Local** tab, and pick that folder. Answer **Yes** to the "not managed by git" warning.
 
 Or, with Picard closed, `picard-cli --yes plugins install C:/path/to/highest-disc-total` on that folder. Use forward slashes: a path with no `/` is looked up as a registry ID. On Windows the command may end with a `UnicodeEncodeError` traceback while printing its result; the plugin is installed anyway.
+
+### Releasing the plugin
+
+Raise `version` in [`MANIFEST.toml`](plugins/highest-disc-total/MANIFEST.toml) and merge to `main`. [`release-plugin.yml`](.github/workflows/release-plugin.yml) copies the plugin folder's history to the `dist/highest-disc-total` branch, where `MANIFEST.toml` is at the root as Picard needs, tags that commit `v<version>` and creates the GitHub release. Merged plugin changes without a version bump only move the branch. Don't create `v…` tags or releases by hand: Picard updates to the newest version-shaped tag, so one on a commit without the plugin at its root breaks every update.
 
 ## Tests
 
