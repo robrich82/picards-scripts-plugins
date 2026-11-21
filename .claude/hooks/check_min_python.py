@@ -2,8 +2,10 @@
 
 The tool needs the dev group's vermin and a newer Python than hooks run on, so it runs through
 `uv run`. The repo comes from the file's path, so an edit in a worktree runs that worktree's tool
-(CLAUDE_PROJECT_DIR is the main checkout even then), but only in CLAUDE_PROJECT_DIR's repo or a
-worktree of it: a tool in any other repo the edited file sits in is never run. A file that
+(CLAUDE_PROJECT_DIR is the main checkout even then). It runs only when that root is
+CLAUDE_PROJECT_DIR's main checkout or a worktree git lists for it, not for a tools/ folder
+anywhere else, even one inside the repo. A worktree of a fork's branch still runs that branch's
+tools/. A file that
 per-file-target-version in pyproject.toml doesn't name passes silently; when uv or the tool can't
 run, Claude is told the file went unchecked, named or not. Edits made through a shell command
 are not seen.
@@ -25,30 +27,42 @@ def repo_root(path):
     )
 
 
-def common_dir(path):
-    """The git common dir of the checkout or worktree holding path, or None. Read from .git,
-    not `git rev-parse`, so it works without git on PATH."""
-    for folder in (path, *path.parents):
-        dot_git = folder / ".git"
-        if dot_git.is_dir():
-            return dot_git.resolve()
-        if dot_git.is_file():  # a worktree: "gitdir: <common>/worktrees/<name>"
-            text = dot_git.read_text(encoding="utf-8")
-            git_dir = folder / text.partition("gitdir:")[2].strip()
-            commondir = git_dir / "commondir"
-            if commondir.is_file():
-                git_dir = git_dir / commondir.read_text(encoding="utf-8").strip()
-            return git_dir.resolve()
-    return None
+def linked_path(file, prefix=""):
+    """The path written in a git link file after prefix, resolved against the file's folder.
+    None when the file is missing, unreadable or holds no such path."""
+    try:
+        text = file.read_text(encoding="utf-8")
+        if not text.startswith(prefix):
+            return None
+        target = text[len(prefix) :].strip()
+        return (file.parent / target).resolve() if target else None
+    except (OSError, ValueError):
+        return None
+
+
+def trusted_roots(project):
+    """CLAUDE_PROJECT_DIR's main checkout and its worktrees, as its git common dir records them.
+    Read from .git, not `git rev-parse`, so it works without git on PATH. Only the project's own
+    .git is read, never one in the folder being checked, which anyone can point anywhere."""
+    dot_git = project / ".git"
+    common = dot_git.resolve() if dot_git.is_dir() else linked_path(dot_git, "gitdir:")
+    if common is None:
+        return set()
+    common = linked_path(common / "commondir") or common  # the project is a worktree
+    if common.name != ".git":  # bare or --separate-git-dir: no checkout beside it
+        return set()
+    roots = {common.parent}
+    for back_link in common.glob("worktrees/*/gitdir"):  # "<worktree>/.git"
+        worktree_git = linked_path(back_link)
+        if worktree_git is not None:
+            roots.add(worktree_git.parent)
+    return roots
 
 
 def trusted(root):
-    """True when root is CLAUDE_PROJECT_DIR's repo or a worktree of it."""
+    """True when root is CLAUDE_PROJECT_DIR's main checkout or one of its worktrees."""
     project = os.environ.get("CLAUDE_PROJECT_DIR")
-    if not project:
-        return False
-    mine = common_dir(root)
-    return mine is not None and mine == common_dir(Path(project).resolve())
+    return bool(project) and root.resolve() in trusted_roots(Path(project).resolve())
 
 
 def edited_path():
