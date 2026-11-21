@@ -9,13 +9,13 @@ python tools/run_tests.py [pytest args]   # the only way to run tests: pytest li
 python tools/run_tests.py --coverage      # also measures coverage (slower); fails below 100%, so any subset of tests fails
 uv run ruff check && uv run ruff format --check
 uv run ty check                           # needs one run_tests.py first: reads .picard/venv and .picard/src
-uv run python tools/check_min_python.py [file...]  # stdlib APIs newer than per-file-target-version
+uv run python tools/check_min_python.py [file...]  # flags stdlib APIs newer than a file's per-file-target-version
 ```
 
 ## Gotchas
 
 - `.picard/src` in every worktree is a metabrainz/picard clone, and gh run from there targets upstream, so name `robrich82/picards-scripts-plugins` in every gh call that acts on a repo: `-R` where the command's `--help` lists it (`pr`, `issue`, `run`, …), the positional argument for `gh repo view`/`edit`, and the path for `gh api` (`repos/robrich82/picards-scripts-plugins/...`, never `{owner}/{repo}`). `gh auth` and `gist` take no repo.
-- `per-file-target-version` in `pyproject.toml` lists the files that run on an older Python than the test venv's 3.14: the `py39` ones (`tools/run_tests.py`, `tools/install.py`, `.claude/hooks/`) run on the system Python before the venv exists, and the plugin (`py310`) runs on Picard's own Python. Ruff's target version catches newer syntax; `tools/check_min_python.py` (run by the tests) catches newer stdlib APIs with vermin, but not `X | Y` unions. Mark a call a version check guards `# novermin`. A new file of either kind goes in that list.
+- `per-file-target-version` in `pyproject.toml` lists the files that run on an older Python than the test venv's 3.14: the `py39` ones (`tools/run_tests.py`, `tools/install.py`, `.claude/hooks/`) run on the system Python before the venv exists, and the plugin (`py310`) runs on Picard's own Python. Ruff's target version catches newer syntax, and `tools/check_min_python.py` newer stdlib APIs (README's "Lint, format and type check"). Nothing catches `X | Y` unions in a `py39` file: check those by hand. A new file of either kind goes in that list.
 - Edit `.ptsp` and `.py` files with Edit/Write, not a shell command. The PostToolUse hooks in `.claude/settings.json` only see those tools: they check `.ptsp` edits with Picard's parser (this needs the venv from one `run_tests.py` run) and run `ruff format` on `.py` edits.
 - Don't run the `mise run install-*` tasks / `tools/install.py` unless asked: they write the user's real Picard config and plugin folder.
 - Behaviour is documented in the README tables and, for the plugin, `MANIFEST.toml` `long_description`. Update them in the same change. In self-review of such a change, dispatch the `behaviour-docs-reviewer` agent with the base ref.

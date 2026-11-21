@@ -40,12 +40,24 @@ def write(root, name, text):
     return path
 
 
+def git_add(root, name):
+    subprocess.run(["git", "add", name], cwd=root, check=True)
+
+
 def test_this_repo_meets_its_target_versions():
+    versions = check_min_python.targets(ROOT / "pyproject.toml")
+    listed = check_min_python.repo_files(ROOT)
+    assert any(check_min_python.target_of(name, versions) for name in listed)
     assert check_min_python.main([]) == 0
 
 
-def test_targets_reads_versions():
-    assert check_min_python.targets(ROOT / "pyproject.toml")["plugins/**"] == "3.10"
+def test_targets_reads_versions(repo):
+    assert check_min_python.targets(repo / "pyproject.toml") == {
+        "old/*.py": (3, 9),
+        "plugin/**": (3, 10),
+        "solo.py": (3, 9),
+        "ancient.py": (3, 8),
+    }
 
 
 def test_targets_rejects_unknown_version(tmp_path):
@@ -58,28 +70,34 @@ def test_targets_rejects_unknown_version(tmp_path):
 @pytest.mark.parametrize(
     ("relative", "expected"),
     [
-        ("old/a.py", "3.9"),
-        ("old/deeper/a.py", None),  # * stays in one folder
-        ("plugin/x/__init__.py", "3.10"),
-        ("solo.py", "3.9"),
-        ("sub/solo.py", "3.9"),  # a glob without a slash matches the name
+        ("old/a.py", (3, 9)),
+        ("old/deeper/a.py", (3, 9)),  # * crosses folders, as in Ruff
+        ("plugin/x/__init__.py", (3, 10)),
+        ("solo.py", (3, 9)),
+        ("sub/solo.py", (3, 9)),  # a glob also matches the file name
+        ("top.py", (3, 11)),  # **/ matches no folder
         ("new.py", None),
     ],
 )
 def test_target_of(relative, expected):
-    versions = {"old/*.py": "3.9", "plugin/**": "3.10", "solo.py": "3.9"}
+    versions = {
+        "old/*.py": (3, 9),
+        "plugin/**": (3, 10),
+        "solo.py": (3, 9),
+        "**/top.py": (3, 11),
+    }
     assert check_min_python.target_of(relative, versions) == expected
 
 
 def test_target_of_takes_the_lowest_matching_version():
-    versions = {"**/*.py": "3.10", "a/*.py": "3.9", "a/b.py": "3.11"}
-    assert check_min_python.target_of("a/b.py", versions) == "3.9"
+    versions = {"**/*.py": (3, 10), "a/*.py": (3, 9), "a/b.py": (3, 11)}
+    assert check_min_python.target_of("a/b.py", versions) == (3, 9)
 
 
-def test_old_file_using_newer_api_fails(repo, capfd):
+def test_old_file_using_newer_api_fails_with_its_line(repo, capfd):
     write(repo, "old/a.py", NEW_API)
     assert check_min_python.check(repo) == 1
-    assert "'shutil.rmtree(onexc)' requires !2, 3.12" in capfd.readouterr().out
+    assert "L2: 'shutil.rmtree(onexc)' requires !2, 3.12" in capfd.readouterr().out
 
 
 def test_annotations_are_checked(repo, capfd):
@@ -95,8 +113,14 @@ def test_each_file_is_held_to_its_own_version(repo, capfd):
     write(repo, "old/a.py", MATCH)
     assert check_min_python.check(repo) == 1
     out = capfd.readouterr().out
-    assert "old" in out
-    assert "plugin" not in out
+    assert "a.py" in out
+    assert "p.py" not in out
+
+
+def test_a_failing_group_fails_even_when_a_later_one_passes(repo):
+    write(repo, "ancient.py", GENERIC_ANNOTATION)  # 3.8 is checked first
+    write(repo, "solo.py", "x = 1\n")
+    assert check_min_python.check(repo) == 1
 
 
 def test_novermin_skips_a_guarded_line(repo):
@@ -111,23 +135,35 @@ def test_unlisted_and_ignored_files_are_skipped(repo):
     assert check_min_python.check(repo) == 0
 
 
-def test_untracked_files_are_checked(repo):
+def test_repo_files_lists_tracked_and_untracked_files(repo):
+    write(repo, "old/tracked.py", NEW_API)
+    git_add(repo, "old/tracked.py")
+    write(repo, "old/untracked.py", NEW_API)
+    assert sorted(check_min_python.repo_files(repo)) == [
+        "old/tracked.py",
+        "old/untracked.py",
+    ]
+
+
+def test_missing_files_are_skipped(repo):
     write(repo, "old/a.py", NEW_API)
+    git_add(repo, "old/a.py")
+    (repo / "old" / "a.py").unlink()  # still in the index
     assert check_min_python.repo_files(repo) == ["old/a.py"]
+    assert check_min_python.check(repo) == 0
+    assert check_min_python.check(repo, [repo / "old" / "gone.py"]) == 0
 
 
-def test_given_paths_only(repo, capfd):
+def test_given_paths_only(repo):
     bad = write(repo, "old/a.py", NEW_API)
     good = write(repo, "old/b.py", "x = 1\n")
     assert check_min_python.check(repo, [good]) == 0
     assert check_min_python.check(repo, [str(bad)]) == 1
-    capfd.readouterr()
 
 
 def test_given_paths_outside_the_repo_or_not_python_are_skipped(repo, tmp_path):
     outside = write(tmp_path, "old/a.py", NEW_API)
     notes = write(repo, "old/a.txt", NEW_API)
-    assert check_min_python.relative_files(repo, [outside, notes]) == []
     assert check_min_python.check(repo, [outside, notes]) == 0
 
 
