@@ -81,7 +81,7 @@ def remote_refs(remote):
 
 def test_first_release_tags_a_branch_with_the_plugin_at_its_root(repo):
     work, remote = repo
-    assert release(work) == ("v1.0.0", True)
+    assert release(work) == ("v1.0.0", True, True)
     refs = remote_refs(remote)
     assert refs["refs/tags/v1.0.0"] == refs[BRANCH_REF]
     files = git(remote, "ls-tree", "--name-only", "v1.0.0").splitlines()
@@ -94,7 +94,7 @@ def test_change_without_version_bump_moves_branch_only(repo):
     work, remote = repo
     release(work)
     commit(work, "1.0.0", new_file="unreleased.py")
-    assert release(work) == ("v1.0.0", False)
+    assert release(work) == ("v1.0.0", False, True)
     refs = remote_refs(remote)
     assert refs[BRANCH_REF] != refs["refs/tags/v1.0.0"]
     assert release_plugin.is_ancestor(remote, "v1.0.0", refs[BRANCH_REF])
@@ -107,7 +107,7 @@ def test_change_outside_the_plugin_leaves_the_branch_alone(repo):
     before = remote_refs(remote)
     (work / "README.md").write_text("edited\n")
     git(work, "commit", "-qam", "readme")
-    assert release(work) == ("v1.0.0", False)
+    assert release(work) == ("v1.0.0", False, True)
     assert remote_refs(remote) == before
 
 
@@ -115,7 +115,7 @@ def test_version_bump_tags_again(repo):
     work, remote = repo
     release(work)
     commit(work, "1.10.0")
-    assert release(work) == ("v1.10.0", True)
+    assert release(work) == ("v1.10.0", True, True)
     refs = remote_refs(remote)
     assert refs["refs/tags/v1.10.0"] == refs[BRANCH_REF]
 
@@ -154,8 +154,44 @@ def test_rerun_of_an_older_commit_reports_its_tag_and_pushes_nothing(repo):
     release(work)
     before = remote_refs(remote)
     git(work, "checkout", "-q", first)
-    assert release(work) == ("v1.0.0", False)
+    assert release(work) == ("v1.0.0", False, False)
     assert remote_refs(remote) == before
+
+
+def test_rerun_finds_its_tag_on_a_later_commit(repo):
+    """Its own run failed before pushing, and a later run of the same version made the tag."""
+    work, remote = repo
+    first = git(work, "rev-parse", "HEAD")
+    commit(work, "1.0.0", new_file="later.py")
+    release(work)
+    before = remote_refs(remote)
+    git(work, "checkout", "-q", first)
+    assert release(work) == ("v1.0.0", False, True)
+    assert remote_refs(remote) == before
+
+
+def test_tagging_a_commit_the_branch_moved_past_refused(repo):
+    """A bump whose run never finished, reverted since, then re-run: it would release reverted code."""
+    work, remote = repo
+    release(work)
+    bump = commit(work, "1.1.0", new_file="feature.py")
+    git(work, "revert", "--no-edit", "HEAD")
+    release(work)
+    before = remote_refs(remote)
+    git(work, "checkout", "-q", bump)
+    with pytest.raises(
+        SystemExit, match=r"v1\.1\.0 would tag a commit .* has moved past"
+    ):
+        release(work)
+    assert remote_refs(remote) == before
+
+
+def test_annotated_current_tag_checked_by_its_commit(repo):
+    work, remote = repo
+    release(work)
+    git(remote, "tag", "-f", "-a", "-m", "annotated", "v1.0.0", "v1.0.0")
+    commit(work, "1.0.0", new_file="unreleased.py")
+    assert release(work) == ("v1.0.0", False, True)
 
 
 def test_diverged_branch_refused_and_no_tag_pushed(repo):
@@ -194,7 +230,7 @@ def test_tags_picard_does_not_take_for_versions_ignored(repo):
     work, _ = repo
     for tag in ("stable", "v2.0.0-rc1", "v2.0.0.1"):
         git(work, "push", "-q", "origin", f"HEAD:refs/tags/{tag}")
-    assert release(work) == ("v1.0.0", True)
+    assert release(work) == ("v1.0.0", True, True)
 
 
 def test_annotated_tag_compared_by_its_version(repo):
@@ -235,7 +271,7 @@ def test_main_writes_the_tag_for_the_workflow_every_run(
     assert capsys.readouterr().out == "Tagged v1.0.0\n"
     # The second run also writes it, so its release step creates a release the first one missed.
     release_plugin.main([])
-    assert output.read_text() == "tag=v1.0.0\ntag=v1.0.0\n"
+    assert output.read_text() == "tag=v1.0.0\nlatest=true\n" * 2
     assert capsys.readouterr().out.startswith("v1.0.0 already tagged")
 
 
@@ -313,3 +349,4 @@ def test_workflow_runs_the_script_on_main_and_releases_its_tag():
         "python3 tools/release_plugin.py",
     )
     assert publish["env"]["TAG"] == "${{ steps.release.outputs.tag }}"
+    assert publish["env"]["LATEST"] == "${{ steps.release.outputs.latest }}"

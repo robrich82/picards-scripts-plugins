@@ -69,7 +69,10 @@ def version_tags(refs):
 
 
 def release(repo, remote):
-    """Bring BRANCH up to HEAD's plugin history, with v<version> on it. Returns (tag, whether new)."""
+    """Bring BRANCH up to HEAD's plugin history, with v<version> on it.
+
+    Returns (tag, whether it is new, whether it is the newest release).
+    """
     manifest = tomllib.loads(git(repo, "show", f"HEAD:{PREFIX}/MANIFEST.toml"))
     version = manifest.get("version")
     match = TAG.fullmatch(f"v{version}") if isinstance(version, str) else None
@@ -88,8 +91,12 @@ def release(repo, remote):
     # Not moving: a re-run of an older commit, which only needs its release created.
     moves = not (tip and is_ancestor(repo, split, tip))
     new = tag not in tags
+    if new and not moves:
+        raise SystemExit(
+            f"{tag} would tag a commit {BRANCH} has moved past, such as a reverted bump: release from main"
+        )
     newest = max(tags, key=tags.__getitem__, default=None)
-    if (moves or new) and newest and tags[newest] > current:
+    if moves and newest and tags[newest] > current:
         raise SystemExit(
             f"{tag} is older than {newest}, the release Picard updates to: raise version past it"
         )
@@ -104,19 +111,19 @@ def release(repo, remote):
     if push:
         # Atomic, so a refused branch leaves no tag; no --force, as rewriting BRANCH breaks installs.
         git(repo, "push", "-q", "--atomic", remote, *push)
-    return tag, new
+    return tag, new, not newest or tags[newest] <= current
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--remote", default="origin")
     args = parser.parse_args(argv)
-    tag, new = release(ROOT, args.remote)
+    tag, new, latest = release(ROOT, args.remote)
     print(f"Tagged {tag}" if new else f"{tag} already tagged; {BRANCH} up to date")
     # Every run, so re-running one whose release step failed creates the release.
     if output := os.environ.get("GITHUB_OUTPUT"):
         with open(output, "a", encoding="utf-8") as out:
-            out.write(f"tag={tag}\n")
+            out.write(f"tag={tag}\nlatest={str(latest).lower()}\n")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TELEMETRY: "false"
           TAG: ${{ steps.release.outputs.tag }}
+          LATEST: ${{ steps.release.outputs.latest }} # false when re-running an older release
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "Highest Disc Total $TAG" --notes "Install in Picard 3: Options → Options… → Plugins → Install Plugin… → URL, with Git URL \`https://github.com/$GH_REPO\` and Ref/Tag \`$TAG\`.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --latest="$LATEST" --title "Highest Disc Total $TAG" --notes "Install in Picard 3: Options → Options… → Plugins → Install Plugin… → URL, with Git URL \`https://github.com/$GH_REPO\` and Ref/Tag \`$TAG\`.
 
           Or, with Picard closed: \`picard-cli plugins install https://github.com/$GH_REPO --ref $TAG\`"
