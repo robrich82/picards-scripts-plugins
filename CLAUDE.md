@@ -19,5 +19,6 @@ uv run python tools/check_min_python.py [file...]  # flags stdlib APIs newer tha
 - Edit `.ptsp` and `.py` files with Edit/Write, not a shell command. The PostToolUse hooks in `.claude/settings.json` only see those tools: they check `.ptsp` edits with Picard's parser (this needs the venv from one `run_tests.py` run) and run `ruff format` and `tools/check_min_python.py` on `.py` edits.
 - Don't run the `mise run install-*` tasks / `tools/install.py` unless asked: they write the user's real Picard config and plugin folder.
 - Behaviour is documented in the README tables and, for the plugin, `MANIFEST.toml` `long_description`. Update them in the same change. In self-review of such a change, dispatch the `behaviour-docs-reviewer` agent with the base ref.
+- In self-review of a change to `CLAUDE.md` or `.claude/`, or to what they describe (a `PICARD_REF` bump, `pyproject.toml`, `tools/`), dispatch the `instruction-drift-reviewer` agent with the base ref.
 - Never create a tag Picard reads as a version (`v1.2.3`, `2.0`, `release-1.2`…) or a GitHub release by hand; see README's "Releasing the plugin".
 - Tagger scripts run in filename order (04 before 05 matters). A script that writes a new tag needs it added to `WRITTEN` in `tests/test_tagger_scripts.py`.
