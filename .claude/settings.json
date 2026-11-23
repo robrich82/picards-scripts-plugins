@@ -25,6 +25,11 @@
             "type": "command",
             "command": "python -I -c \"import os, runpy; p = os.path.join(os.environ.get('CLAUDE_PROJECT_DIR', ''), '.claude', 'hooks', 'ruff_format.py'); os.path.isfile(p) and runpy.run_path(p, run_name='__main__')\"",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python -I -c \"import os, runpy; p = os.path.join(os.environ.get('CLAUDE_PROJECT_DIR', ''), '.claude', 'hooks', 'check_min_python.py'); os.path.isfile(p) and runpy.run_path(p, run_name='__main__')\"",
+            "timeout": 60
           }
         ]
       }
