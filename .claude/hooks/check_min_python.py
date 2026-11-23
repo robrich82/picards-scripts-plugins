@@ -37,7 +37,11 @@ def linked_path(file, prefix=""):
         if not text.startswith(prefix):
             return None
         target = text[len(prefix) :].strip()
-        return (file.parent / target).resolve() if target else None
+        if (
+            not target or "\0" in target
+        ):  # resolve() rejects a NUL on POSIX, not Windows
+            return None
+        return (file.parent / target).resolve()
     except (OSError, ValueError):
         return None
 
@@ -55,11 +59,7 @@ def trusted_roots(project):
     common = linked_path(common / "commondir") or common  # the project is a worktree
     if common.name == ".git":  # else bare or --separate-git-dir: no checkout beside it
         roots.add(common.parent)
-    try:
-        entries = list(common.glob("worktrees/*"))
-    except (OSError, ValueError):  # a NUL in .git gets this far on newer Pythons
-        return roots
-    for entry in entries:
+    for entry in common.glob("worktrees/*"):
         worktree_git = linked_path(entry / "gitdir")  # "<worktree>/.git"
         if worktree_git is not None and linked_path(worktree_git, "gitdir:") == entry:
             roots.add(worktree_git.parent)

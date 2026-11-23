@@ -469,8 +469,15 @@ def test_trusted_roots_read_what_git_worktree_add_writes(tmp_path, relative):
 
 @pytest.mark.parametrize(
     "git",
-    [None, b"\xff\xfe garbage", b"not a link\n", b"gitdir:\n", b"gitdir: \x00\n"],
-    ids=["no-git", "garbage", "no-gitdir", "empty-gitdir", "nul"],
+    [
+        None,
+        b"\xff\xfe garbage",
+        b"not a link\n",
+        b"gitdir:\n",
+        b"gitdir: \x00\n",
+        b"gitdir: .git\n",
+    ],
+    ids=["no-git", "garbage", "no-gitdir", "empty-gitdir", "nul", "gitdir-to-a-file"],
 )
 def test_trusted_roots_fall_back_to_the_project_alone(tmp_path, git):
     """Its .claude/hooks run anyway, so it is trusted even when its git links can't be read."""
