@@ -65,7 +65,7 @@ def _clear_readonly(func, path, exc):
 def rmtree(path):
     """shutil.rmtree that also removes read-only files, such as git pack files on Windows."""
     if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_clear_readonly)
+        shutil.rmtree(path, onexc=_clear_readonly)  # novermin
     else:  # pragma: no cover  (only system Pythons before 3.12; tests run on the venv's)
         shutil.rmtree(path, onerror=_clear_readonly)
 
