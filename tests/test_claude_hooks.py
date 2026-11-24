@@ -285,8 +285,9 @@ def decoy_uv_in_cwd(tmp_path):
     """kwargs for run_after_edit: a cwd holding a uv that can't start, and an environment in
     which Windows' shutil.which looks there first."""
     fake_uv(tmp_path)
-    env = dict(os.environ)
-    env.pop("NoDefaultCurrentDirectoryInExePath", None)  # Claude Code sets it
+    # Claude Code sets it. os.environ's keys are upper case on Windows.
+    off = "NODEFAULTCURRENTDIRECTORYINEXEPATH"
+    env = {k: v for k, v in os.environ.items() if k.upper() != off}
     return {"cwd": tmp_path, "env": env}
 
 
