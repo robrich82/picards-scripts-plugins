@@ -1,4 +1,5 @@
-"""Shared by the PostToolUse hooks: which repo roots they may run code from, and where uv is.
+"""Shared by the PostToolUse hooks: which repo roots they may run code from, where uv is, and
+how to run it.
 
 Not a hook itself. settings.json runs hooks with -I, so each hook puts this folder on sys.path.
 
@@ -10,6 +11,8 @@ content: a worktree of a fork's branch still runs that branch's code.
 """
 
 import os
+import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -77,3 +80,42 @@ def find_uv():
         if absolute and os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
+
+
+def run(args, timeout, **kwargs):
+    """subprocess.run(args, capture_output=True, timeout=timeout, ...), but a timeout also stops
+    what the child started. subprocess.run kills only the child, then on Windows waits for its
+    output pipes, which uv's ruff or python, or the interpreter a venv's python.exe launches,
+    still hold."""
+    # start_new_session: on POSIX the child leads a process group kill_tree() can signal.
+    # Windows ignores it.
+    with subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        **kwargs,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(process)
+            process.communicate()  # the pipes close with the tree; collect what's left
+            raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
+def kill_tree(process):
+    """Stop process and every process under it. If that fails, stop process alone."""
+    try:
+        if sys.platform == "win32":
+            # A full path: Windows looks for a bare name in the cwd first.
+            system = os.environ.get("SystemRoot", r"C:\Windows")
+            taskkill = os.path.join(system, "System32", "taskkill.exe")
+            command = [taskkill, "/F", "/T", "/PID", str(process.pid)]
+            subprocess.run(command, capture_output=True, timeout=10, check=False)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    process.kill()

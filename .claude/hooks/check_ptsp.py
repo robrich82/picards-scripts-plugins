@@ -105,7 +105,7 @@ def main():
         )
     try:
         # -I keeps cwd and PYTHON* out of the child's imports; -X utf8 matches the decoding here.
-        result = subprocess.run(
+        result = common.run(
             [
                 str(python),
                 "-I",
@@ -116,11 +116,9 @@ def main():
                 str(path),
                 str(picard_src),
             ],
-            capture_output=True,
             encoding="utf-8",
             errors="backslashreplace",
             timeout=25,
-            check=False,
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not parse-checked: the check timed out.")

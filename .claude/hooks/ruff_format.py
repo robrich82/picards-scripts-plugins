@@ -40,15 +40,13 @@ def note(text):
 
 def ruff(uv, root, *args, timeout):
     # --frozen: run from uv.lock as it is, never re-lock it as a side effect of formatting.
-    return subprocess.run(
+    return common.run(
         [uv, "run", "--frozen", "--quiet", "--project", str(root), "ruff", *args],
         # Defence in depth: keep Claude's cwd out of uv's and Ruff's lookups.
         cwd=str(root),
-        capture_output=True,
         encoding="utf-8",
         errors="backslashreplace",
         timeout=timeout,
-        check=False,
     )
 
 
