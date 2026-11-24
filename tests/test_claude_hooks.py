@@ -218,9 +218,8 @@ def test_check_ptsp_gives_no_file_line_for_an_inline_script(in_repo):
     [
         (subprocess.TimeoutExpired([], 25), "the check timed out."),
         (
-            OSError("[WinError 193] %1 is not a valid Win32 application"),
-            ".picard/venv's python did not start ([WinError 193] %1 is not a valid "
-            "Win32 application). Rebuild .picard/ with `python tools/run_tests.py`.",
+            OSError("bad"),
+            ".picard/venv's python did not start (bad). Rebuild .picard/ with `python tools/run_tests.py`.",
         ),
     ],
     ids=["timeout", "python-does-not-start"],
