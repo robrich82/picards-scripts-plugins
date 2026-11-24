@@ -335,8 +335,27 @@ def test_find_uv_takes_the_first_absolute_path_folder_holding_it(tmp_path, monke
     rooted = [os.path.splitdrive(tmp_path / "rooted")[1]] if os.name == "nt" else []
     folders = [str(tmp_path / f) for f in ("missing", "empty", "first", "second")]
     monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *rooted, *folders]))
-    found = load_hook("_hook_common.py").find_uv()
+    common = load_hook("_hook_common.py")
+    if os.name == "nt":
+        # Python 3.13 stopped calling "\folder" absolute; fake the older isabs the hook may run on.
+        monkeypatch.setattr(
+            os.path, "isabs", lambda p: p[:1] in "\\/" or p[1:3] in (":\\", ":/")
+        )
+    found = common.find_uv()
     assert found and Path(found) == first
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the .cmd and .exe lookup is Windows-only")
+def test_find_uv_takes_only_uv_exe_on_windows(tmp_path, monkeypatch):
+    for folder in ("cmd", "exe"):
+        (tmp_path / folder).mkdir()
+    for name in ("uv.cmd", "uv.bat", "uv"):
+        (tmp_path / "cmd" / name).write_text("")
+    exe = fake_uv(tmp_path / "exe")
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join(str(tmp_path / f) for f in ("cmd", "exe"))
+    )
+    assert load_hook("_hook_common.py").find_uv() == str(exe)
 
 
 @pytest.mark.skipif(

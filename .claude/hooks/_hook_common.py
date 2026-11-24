@@ -65,7 +65,8 @@ def find_uv():
     """uv from PATH's absolute folders, or None. Not shutil.which: on Windows it looks in the
     current folder first, which is wherever Claude is working, unless
     NoDefaultCurrentDirectoryInExePath is set and Python is 3.12 or later. Run uv with cwd set to
-    a trusted root, as tools/check_min_python.py does its own lookup."""
+    a trusted root, as tools/check_min_python.py does its own lookup. Only uv.exe on Windows: a
+    .cmd or .bat runs through cmd.exe, which would parse the paths Claude passes it."""
     windows = sys.platform == "win32"
     name = "uv.exe" if windows else "uv"
     for folder in os.environ.get("PATH", "").split(os.pathsep):
