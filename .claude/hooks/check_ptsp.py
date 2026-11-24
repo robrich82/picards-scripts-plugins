@@ -1,9 +1,10 @@
 """PostToolUse hook: parse an edited .ptsp with Picard's script parser and report errors to Claude.
 
 Runs on the system Python like tools/, then re-runs itself with --check in the test venv that
-tools/run_tests.py builds, where Picard is importable. When that venv is missing or the check
-itself breaks, it tells Claude the file went unchecked rather than blaming the script.
-Edits made through a shell command are not seen.
+tools/run_tests.py builds, where Picard is importable, from the edited file's repo when
+_hook_common.trusted() allows it. When that venv is missing or the check itself breaks, it tells
+Claude the file went unchecked rather than blaming the script. Edits made through a shell command
+are not seen.
 """
 
 import json
@@ -12,6 +13,9 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent))
+import _hook_common as common
 
 PARSE_ERROR = (
     3  # the child's exit code for a script error; anything else is the checker failing
@@ -88,6 +92,11 @@ def main():
     root = repo_root(path)
     if root is None:
         return 0
+    if not common.trusted(root):
+        return note(
+            f"{path.name} was not parse-checked: "
+            f"{common.untrusted_reason(root)}, so its .picard/venv was not run."
+        )
     python, picard_src = venv_python(root), root / ".picard" / "src"
     if not (python.is_file() and picard_src.is_dir()):
         return note(

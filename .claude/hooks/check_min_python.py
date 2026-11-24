@@ -1,12 +1,7 @@
 """PostToolUse hook: run tools/check_min_python.py on an edited .py file and report violations to Claude.
 
 The tool needs the dev group's vermin and a newer Python than hooks run on, so it runs through
-`uv run`. The repo comes from the file's path, so an edit in a worktree runs that worktree's tool
-(CLAUDE_PROJECT_DIR is the session's checkout, not necessarily the edited file's).
-
-Running a root's tools/ runs its code, so only trusted_roots() are run; any other root holding the
-tool, even a folder inside this repo, gets a note instead. Trust is by location, not content: a
-worktree of a fork's branch still runs that branch's tools/.
+`uv run`, from the edited file's repo when _hook_common.trusted() allows it.
 
 A file that per-file-target-version in pyproject.toml doesn't name passes silently; when uv or the
 tool can't run, Claude is told the file went unchecked, named or not. Edits made through a shell
@@ -15,10 +10,12 @@ command are not seen.
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent))
+import _hook_common as common
 
 TOOL = Path("tools") / "check_min_python.py"
 
@@ -27,49 +24,6 @@ def repo_root(path):
     return next(
         (d for d in path.parents if (d / "tools" / "run_tests.py").is_file()), None
     )
-
-
-def linked_path(file, prefix=""):
-    """The path written in a git link file after prefix, resolved against the file's folder.
-    None when the file is missing, unreadable or holds no such path."""
-    try:
-        text = file.read_text(encoding="utf-8")
-        if not text.startswith(prefix):
-            return None
-        target = text[len(prefix) :].strip()
-        if (
-            not target or "\0" in target
-        ):  # resolve() rejects a NUL on POSIX, not Windows
-            return None
-        return (file.parent / target).resolve()
-    except (OSError, ValueError):
-        return None
-
-
-def trusted_roots(project):
-    """CLAUDE_PROJECT_DIR, its main checkout and the worktrees its git common dir records.
-    Read from .git files, not `git rev-parse`, so it works without git on PATH. A worktree's own
-    .git is read only to confirm it still links back, as `git worktree repair` does: an entry
-    whose folder was deleted must not trust whatever later appears at that path."""
-    roots = {project}  # its .claude/hooks run anyway, this one among them
-    dot_git = project / ".git"
-    common = dot_git.resolve() if dot_git.is_dir() else linked_path(dot_git, "gitdir:")
-    if common is None:
-        return roots
-    common = linked_path(common / "commondir") or common  # the project is a worktree
-    if common.name == ".git":  # else bare or --separate-git-dir: no checkout beside it
-        roots.add(common.parent)
-    for entry in common.glob("worktrees/*"):
-        worktree_git = linked_path(entry / "gitdir")  # "<worktree>/.git"
-        if worktree_git is not None and linked_path(worktree_git, "gitdir:") == entry:
-            roots.add(worktree_git.parent)
-    return roots
-
-
-def trusted(root):
-    """True when root is one of trusted_roots()."""
-    project = os.environ.get("CLAUDE_PROJECT_DIR")
-    return bool(project) and root.resolve() in trusted_roots(Path(project).resolve())
 
 
 def edited_path():
@@ -96,12 +50,12 @@ def main():
     root = repo_root(path)
     if root is None or not (root / TOOL).is_file():
         return 0
-    if not trusted(root):
+    if not common.trusted(root):
         return note(
-            f"{path.name} was not checked for newer stdlib APIs: {root} is not "
-            "CLAUDE_PROJECT_DIR or one of its git worktrees, so its tools/ were not run."
+            f"{path.name} was not checked for newer stdlib APIs: "
+            f"{common.untrusted_reason(root)}, so its tools/ were not run."
         )
-    uv = shutil.which("uv")
+    uv = common.find_uv()
     if uv is None:
         return note(
             f"{path.name} was not checked for newer stdlib APIs: uv is not on PATH (`mise install`)."

@@ -1,17 +1,18 @@
 """PostToolUse hook: ruff-format an edited .py file and sort its imports, with the repo's pinned Ruff.
 
 Only import sorting is auto-fixed: a full `ruff check --fix` would delete an import added one edit
-before the code that uses it. The repo root comes from the file's path, not CLAUDE_PROJECT_DIR,
-which is the main checkout even when the edit is in a worktree. When uv or Ruff can't run, Claude
-is told the file went unformatted; only Ruff rejecting the file itself is reported as an error.
-Edits made through a shell command are not seen.
+before the code that uses it. Ruff runs from the edited file's repo when _hook_common.trusted()
+allows it. When uv or Ruff can't run, Claude is told the file went unformatted; only Ruff
+rejecting the file itself is reported as an error. Edits made through a shell command are not seen.
 """
 
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent))
+import _hook_common as common
 
 
 def repo_root(path):
@@ -62,7 +63,12 @@ def main():
         return 0
     if any(path.is_relative_to(root / ".picard" / d) for d in ("src", "venv")):
         return 0  # Picard's upstream source and the test venv
-    uv = shutil.which("uv")
+    if not common.trusted(root):
+        return note(
+            f"{path.name} was not formatted: "
+            f"{common.untrusted_reason(root)}, so its uv project was not run."
+        )
+    uv = common.find_uv()
     if uv is None:
         return note(
             f"{path.name} was not formatted: uv is not on PATH (`mise install`)."
