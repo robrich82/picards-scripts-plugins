@@ -62,15 +62,18 @@ def untrusted_reason(root):
 
 
 def find_uv():
-    """uv from PATH's absolute folders, or None. Not shutil.which: on Windows before Python 3.12
-    that looks in the current folder first, which is wherever Claude is working."""
-    exts = os.environ.get("PATHEXT", ".EXE") if sys.platform == "win32" else ""
-    names = ["uv" + ext for ext in exts.split(os.pathsep)]
+    """uv from PATH's absolute folders, or None. Not shutil.which: on Windows it looks in the
+    current folder first, which is wherever Claude is working, unless
+    NoDefaultCurrentDirectoryInExePath is set and Python is 3.12 or later. Run uv with cwd set to
+    a trusted root, as tools/check_min_python.py does its own lookup."""
+    windows = sys.platform == "win32"
+    name = "uv.exe" if windows else "uv"
     for folder in os.environ.get("PATH", "").split(os.pathsep):
-        if not os.path.isabs(folder):  # "", "." and other folders relative to the cwd
-            continue
-        for name in names:
-            path = os.path.join(folder, name)
-            if os.path.isfile(path) and os.access(path, os.X_OK):
-                return path
+        # Skips "", "." and other relative folders, and on Windows "\folder", which Python
+        # before 3.13 calls absolute but is on the current folder's drive.
+        drive = os.path.splitdrive(folder)[0] if windows else "/"
+        path = os.path.join(folder, name)
+        absolute = bool(drive) and os.path.isabs(folder)
+        if absolute and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
     return None

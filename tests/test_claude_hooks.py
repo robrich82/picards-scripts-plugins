@@ -18,28 +18,26 @@ ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / ".claude" / "hooks"
 SETTINGS = ROOT / ".claude" / "settings.json"
 SCRIPT_FILES = sorted((ROOT / "tagger-scripts").glob("*.ptsp"))
-POST_EDIT_HOOKS = ["check_ptsp.py", "ruff_format.py", "check_min_python.py"]
+REPO = "robrich82/picards-scripts-plugins"
 # Each post-edit hook, the file it acts on and the parts of its note for a root it won't run.
 UNTRUSTED = {
+    "check_ptsp.py": ("example.ptsp", "parse-checked", ".picard/venv was not run"),
+    "ruff_format.py": ("example.py", "formatted", "uv project was not run"),
     "check_min_python.py": (
         "example.py",
         "checked for newer stdlib APIs",
-        "tools/ were",
+        "tools/ were not run",
     ),
-    "ruff_format.py": ("example.py", "formatted", "uv project was"),
-    "check_ptsp.py": ("example.ptsp", "parse-checked", ".picard/venv was"),
 }
+POST_EDIT_HOOKS = list(UNTRUSTED)
 
 
 def untrusted_note(hook, root):
     name, done, what = UNTRUSTED[hook]
     return (
         f"{name} was not {done}: {root} is not CLAUDE_PROJECT_DIR or one of its git "
-        f"worktrees, so its {what} not run."
+        f"worktrees, so its {what}."
     )
-
-
-REPO = "robrich82/picards-scripts-plugins"
 
 
 def run_hook(name, stdin, env=None, project=ROOT, cwd=None):
@@ -215,21 +213,35 @@ def test_check_ptsp_gives_no_file_line_for_an_inline_script(in_repo):
     assert "script line 1 is" not in result.stderr
 
 
-def test_check_ptsp_says_when_the_check_times_out(bare_repo, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    ("error", "shown"),
+    [
+        (subprocess.TimeoutExpired([], 25), "the check timed out."),
+        (
+            OSError("[WinError 193] %1 is not a valid Win32 application"),
+            ".picard/venv's python did not start ([WinError 193] %1 is not a valid "
+            "Win32 application). Rebuild .picard/ with `python tools/run_tests.py`.",
+        ),
+    ],
+    ids=["timeout", "python-does-not-start"],
+)
+def test_check_ptsp_says_when_the_check_does_not_finish(
+    bare_repo, monkeypatch, capsys, error, shown
+):
     python = venv_python(bare_repo)
     python.parent.mkdir(parents=True)
     python.write_text("")
     (bare_repo / ".picard" / "src").mkdir()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(bare_repo))
 
-    def too_slow(args, **kwargs):
-        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+    def fails(args, **kwargs):
+        raise error
 
-    monkeypatch.setattr(subprocess, "run", too_slow)
+    monkeypatch.setattr(subprocess, "run", fails)
     path = ptsp(bare_repo, "$set(a,b)")
     code, note = call_after_edit(monkeypatch, capsys, "check_ptsp.py", path)
     assert code == 0
-    assert note == "test.ptsp was not parse-checked: the check timed out."
+    assert note == f"test.ptsp was not parse-checked: {shown}"
 
 
 @pytest.mark.parametrize("name", POST_EDIT_HOOKS)
@@ -268,11 +280,25 @@ def test_hooks_ignore_files_outside_a_repo(name, tmp_path):
     assert files[1].read_text() == "x=1\n"
 
 
-def test_ruff_format_formats_and_sorts_imports_but_keeps_unused_ones(in_repo):
+@pytest.fixture
+def decoy_uv_in_cwd(tmp_path):
+    """kwargs for run_after_edit: a cwd holding a uv that can't start, and an environment in
+    which Windows' shutil.which looks there first."""
+    fake_uv(tmp_path)
+    env = dict(os.environ)
+    env.pop("NoDefaultCurrentDirectoryInExePath", None)  # Claude Code sets it
+    return {"cwd": tmp_path, "env": env}
+
+
+def test_ruff_format_formats_and_sorts_imports_but_keeps_unused_ones(
+    in_repo, decoy_uv_in_cwd
+):
     assert shutil.which("uv"), "uv must be on PATH for the ruff_format tests"
     path = in_repo / "example.py"
     path.write_text("import sys\nimport os\nx=[1,\n2]\n", encoding="utf-8")
-    result = run_after_edit("ruff_format.py", path, tool_name="MultiEdit")
+    result = run_after_edit(
+        "ruff_format.py", path, tool_name="MultiEdit", **decoy_uv_in_cwd
+    )
     assert (result.returncode, result.stdout) == (0, ""), result.stderr
     assert path.read_text(encoding="utf-8") == "import os\nimport sys\n\nx = [1, 2]\n"
 
@@ -287,29 +313,44 @@ def test_ruff_format_reports_a_syntax_error(in_repo):
 
 
 @pytest.mark.parametrize("name", ["ruff_format.py", "check_min_python.py"])
-def test_hooks_never_run_a_uv_in_the_working_directory(name, in_repo, tmp_path):
-    """shutil.which looks in the cwd first on Windows before Python 3.12."""
+def test_hooks_never_run_a_uv_in_the_working_directory(name, in_repo, decoy_uv_in_cwd):
+    """shutil.which takes the cwd's uv on Windows, and a relative PATH folder's anywhere."""
     path = in_repo / "example.py"
     path.write_text("x=1\n")
-    (tmp_path / "rel").mkdir()
-    fake_uv(tmp_path)
-    fake_uv(tmp_path / "rel")
-    env = dict(os.environ, PATH=os.pathsep.join(["", ".", "rel", str(in_repo)]))
-    note = context(run_after_edit(name, path, env=env, cwd=tmp_path))
+    cwd, env = decoy_uv_in_cwd["cwd"], decoy_uv_in_cwd["env"]
+    (cwd / "rel").mkdir()
+    fake_uv(cwd / "rel")
+    env["PATH"] = os.pathsep.join(["", ".", "rel", str(in_repo)])
+    note = context(run_after_edit(name, path, **decoy_uv_in_cwd))
     assert "uv is not on PATH" in note
     assert path.read_text() == "x=1\n"
 
 
 def test_find_uv_takes_the_first_absolute_path_folder_holding_it(tmp_path, monkeypatch):
-    for folder in ("empty", "first", "second"):
+    for folder in ("empty", "rooted", "first", "second"):
         (tmp_path / folder).mkdir()
-    first = fake_uv(tmp_path / "first")
-    fake_uv(tmp_path / "second")
+    first, *_ = [fake_uv(tmp_path / f) for f in ("first", "second", "rooted")]
     monkeypatch.chdir(tmp_path / "second")
+    # On Windows, "\...\rooted" is on the cwd's drive; Python before 3.13 calls it absolute.
+    rooted = [os.path.splitdrive(tmp_path / "rooted")[1]] if os.name == "nt" else []
     folders = [str(tmp_path / f) for f in ("missing", "empty", "first", "second")]
-    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *folders]))
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *rooted, *folders]))
     found = load_hook("_hook_common.py").find_uv()
     assert found and Path(found) == first
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="every file passes os.access(X_OK) on Windows"
+)
+def test_find_uv_skips_a_uv_that_is_not_executable(tmp_path, monkeypatch):
+    for folder in ("first", "second"):
+        (tmp_path / folder).mkdir()
+    fake_uv(tmp_path / "first").chmod(0o644)
+    second = fake_uv(tmp_path / "second")
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join(str(tmp_path / f) for f in ("first", "second"))
+    )
+    assert load_hook("_hook_common.py").find_uv() == str(second)
 
 
 @pytest.mark.parametrize("folder", ["src", "venv"])
@@ -375,6 +416,19 @@ def test_ruff_format_says_when_ruff_times_out(py_file_with_uv, monkeypatch, caps
     assert len(commands) == 2  # --version, then format; the import sort never runs
 
 
+def test_ruff_format_says_when_uv_does_not_start(py_file_with_uv, monkeypatch, capsys):
+    def cannot_start(args, **kwargs):
+        raise OSError("[WinError 193] %1 is not a valid Win32 application")
+
+    monkeypatch.setattr(subprocess, "run", cannot_start)
+    code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", py_file_with_uv)
+    assert code == 0
+    assert note == (
+        "example.py was not formatted: uv did not start "
+        "([WinError 193] %1 is not a valid Win32 application)."
+    )
+
+
 NEW_API = 'import shutil\nshutil.rmtree("x", onexc=None)\n'  # 3.12
 
 
@@ -395,9 +449,11 @@ def check_min_python_hook():
     )
 
 
-def test_check_min_python_passes_a_py39_file():
+def test_check_min_python_passes_a_py39_file(decoy_uv_in_cwd):
+    """The tool's own shutil.which("uv") must not find the decoy either."""
     needs_uv()
-    result = run_after_edit("check_min_python.py", ROOT / "tools" / "run_tests.py")
+    path = ROOT / "tools" / "run_tests.py"
+    result = run_after_edit("check_min_python.py", path, **decoy_uv_in_cwd)
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
@@ -433,12 +489,12 @@ def test_check_min_python_skips_files_the_table_does_not_name(in_repo):
 def tool_run(in_repo, monkeypatch, capsys, uv_on_path):
     """A .py file in this repo and a fake subprocess.run: set .result or .error, read .calls.
     .edit(path, hook) runs a post-edit hook, check_min_python.py unless named, on path and
-    returns (exit code, the note to Claude or None). .uv is the fake uv on PATH."""
+    returns (exit code, the note to Claude or None)."""
     path = in_repo / "example.py"
     path.write_text("x = 1\n")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(ROOT))
     passed = subprocess.CompletedProcess([], 0, "", "")
-    run = SimpleNamespace(path=path, uv=uv_on_path, calls=[], result=passed, error=None)
+    run = SimpleNamespace(path=path, calls=[], result=passed, error=None)
 
     def fake_run(args, **kwargs):
         run.calls.append((args, kwargs))
@@ -553,16 +609,17 @@ def test_hooks_run_a_worktree_s_own_code(tool_run, monkeypatch, project, folder)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "main"))
     root = project / folder
     assert tool_run.edit(root / "example.py") == (0, None)
-    [(args, _)] = tool_run.calls
+    [(args, kwargs)] = tool_run.calls
     assert args[5:8] == [
         str(root),
         "python",
         str(root / "tools" / "check_min_python.py"),
     ]
+    assert kwargs["cwd"] == str(root)  # the tool looks for uv in its cwd
     tool_run.calls.clear()
     assert tool_run.edit(root / "example.py", "ruff_format.py") == (0, None)
-    assert {tuple(args[4:6]) for args, _ in tool_run.calls} == {
-        ("--project", str(root))
+    assert {(tuple(args[4:6]), kw["cwd"]) for args, kw in tool_run.calls} == {
+        (("--project", str(root)), str(root))
     }
     tool_run.calls.clear()
     assert tool_run.edit(root / "example.ptsp", "check_ptsp.py") == (0, None)
@@ -616,10 +673,10 @@ def test_hooks_never_run_another_folder_s_code(
     assert tool_run.calls == []
 
 
-def test_check_min_python_runs_the_repo_s_tool_through_uv(tool_run):
+def test_check_min_python_runs_the_repo_s_tool_through_uv(tool_run, uv_on_path):
     assert tool_run.edit(tool_run.path) == (0, None)
     [(args, kwargs)] = tool_run.calls
-    assert Path(args[0]) == tool_run.uv
+    assert Path(args[0]) == uv_on_path
     assert args[1:] == [
         "run",
         "--frozen",

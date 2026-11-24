@@ -42,6 +42,7 @@ def ruff(uv, root, *args, timeout):
     # --frozen: run from uv.lock as it is, never re-lock it as a side effect of formatting.
     return subprocess.run(
         [uv, "run", "--frozen", "--quiet", "--project", str(root), "ruff", *args],
+        cwd=str(root),  # a trusted folder, wherever Claude is working
         capture_output=True,
         encoding="utf-8",
         errors="backslashreplace",
@@ -87,6 +88,8 @@ def main():
                 return 2  # PostToolUse: stderr goes back to Claude
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not formatted: Ruff timed out.")
+    except OSError as error:
+        return note(f"{path.name} was not formatted: uv did not start ({error}).")
     return 0
 
 

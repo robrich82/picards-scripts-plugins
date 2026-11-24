@@ -124,6 +124,11 @@ def main():
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not parse-checked: the check timed out.")
+    except OSError as error:
+        return note(
+            f"{path.name} was not parse-checked: .picard/venv's python did not start "
+            f"({error}). Rebuild .picard/ with `python tools/run_tests.py`."
+        )
     if result.returncode == PARSE_ERROR:
         sys.stderr.write(result.stderr[-2000:])
         return 2  # PostToolUse: stderr goes back to Claude
