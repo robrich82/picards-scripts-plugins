@@ -24,7 +24,7 @@ def linked_path(file, prefix=""):
         target = text[len(prefix) :].strip()
         if (
             not target or "\0" in target
-        ):  # resolve() rejects a NUL on POSIX, not Windows
+        ):  # newer Pythons' resolve() lets a NUL through on Windows
             return None
         return (file.parent / target).resolve()
     except (OSError, ValueError):
@@ -64,9 +64,8 @@ def untrusted_reason(root):
 def find_uv():
     """uv from PATH's absolute folders, or None. Not shutil.which: on Windows it looks in the
     current folder first, which is wherever Claude is working, unless
-    NoDefaultCurrentDirectoryInExePath is set and Python is 3.12 or later. Run uv with cwd set to
-    a trusted root, as tools/check_min_python.py does its own lookup. Only uv.exe on Windows: a
-    .cmd or .bat runs through cmd.exe, which would parse the paths Claude passes it."""
+    NoDefaultCurrentDirectoryInExePath is set and Python is 3.12 or later. Only uv.exe on
+    Windows: a .cmd or .bat runs through cmd.exe, which would parse the paths Claude passes it."""
     windows = sys.platform == "win32"
     name = "uv.exe" if windows else "uv"
     for folder in os.environ.get("PATH", "").split(os.pathsep):

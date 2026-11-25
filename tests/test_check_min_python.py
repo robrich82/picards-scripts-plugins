@@ -3,6 +3,7 @@
 import importlib.util
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -169,6 +170,22 @@ def test_given_paths_outside_the_repo_or_not_python_are_skipped(repo, tmp_path):
 
 def test_missing_uv_exits(repo, monkeypatch):
     write(repo, "old/a.py", "x = 1\n")
+    monkeypatch.delenv("UV", raising=False)
     monkeypatch.setattr(check_min_python.shutil, "which", lambda _name: None)
     with pytest.raises(SystemExit, match="uv not found"):
         check_min_python.check(repo)
+
+
+def test_runs_the_uv_that_uv_run_names(repo, monkeypatch):
+    """Not a PATH lookup, which on Windows can find a uv.cmd ahead of uv.exe."""
+    path = write(repo, "old/a.py", "x = 1\n")
+    monkeypatch.setenv("UV", "the-uv-that-ran-this")
+    monkeypatch.setattr(check_min_python.shutil, "which", lambda _name: "uv.cmd")
+    ran = []
+    monkeypatch.setattr(
+        check_min_python.subprocess,
+        "run",
+        lambda args, **_: ran.append(args[0]) or SimpleNamespace(returncode=0),
+    )
+    assert check_min_python.check(repo, [path]) == 0
+    assert ran == ["the-uv-that-ran-this"]

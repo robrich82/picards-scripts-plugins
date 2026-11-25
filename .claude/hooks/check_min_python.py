@@ -65,7 +65,8 @@ def main():
         result = subprocess.run(
             [uv, "run", "--frozen", "--quiet", "--project", str(root)]
             + ["python", str(root / TOOL), str(path)],
-            # A trusted folder, wherever Claude is working: the tool looks for uv here too.
+            # Not Claude's cwd: if UV is unset, the tool's shutil.which("uv") searches it first
+            # on Windows.
             cwd=str(root),
             capture_output=True,
             encoding="utf-8",

@@ -42,7 +42,8 @@ def ruff(uv, root, *args, timeout):
     # --frozen: run from uv.lock as it is, never re-lock it as a side effect of formatting.
     return subprocess.run(
         [uv, "run", "--frozen", "--quiet", "--project", str(root), "ruff", *args],
-        cwd=str(root),  # a trusted folder, wherever Claude is working
+        # Defence in depth: keep Claude's cwd out of uv's and Ruff's lookups.
+        cwd=str(root),
         capture_output=True,
         encoding="utf-8",
         errors="backslashreplace",

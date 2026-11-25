@@ -327,14 +327,19 @@ def test_hooks_never_run_a_uv_in_the_working_directory(name, in_repo, decoy_uv_i
 
 
 def test_find_uv_takes_the_first_absolute_path_folder_holding_it(tmp_path, monkeypatch):
-    for folder in ("empty", "rooted", "first", "second"):
+    for folder in ("empty", "rooted", "folder", "first", "second"):
         (tmp_path / folder).mkdir()
     first, *_ = [fake_uv(tmp_path / f) for f in ("first", "second", "rooted")]
+    (tmp_path / "folder" / first.name).mkdir()
     monkeypatch.chdir(tmp_path / "second")
+    drive, rooted = os.path.splitdrive(tmp_path / "rooted")
     # On Windows, "\...\rooted" is on the cwd's drive; Python before 3.13 calls it absolute.
-    rooted = [os.path.splitdrive(tmp_path / "rooted")[1]] if os.name == "nt" else []
-    folders = [str(tmp_path / f) for f in ("missing", "empty", "first", "second")]
-    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *rooted, *folders]))
+    # "C:." is the cwd on drive C: a drive, but not absolute.
+    on_drive = [rooted, f"{drive}."] if os.name == "nt" else []
+    folders = [
+        str(tmp_path / f) for f in ("missing", "empty", "folder", "first", "second")
+    ]
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *on_drive, *folders]))
     common = load_hook("_hook_common.py")
     if os.name == "nt":
         # Python 3.13 stopped calling "\folder" absolute; fake the older isabs the hook may run on.

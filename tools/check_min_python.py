@@ -9,6 +9,7 @@ With no files, checks every .py file git tracks or would add that the table name
 table doesn't name, that doesn't exist, or that isn't a .py file in this repo, is skipped.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -95,7 +96,8 @@ def check(root, paths=None):
             groups.setdefault(version, []).append(name)
     if not groups:
         return 0
-    uv = shutil.which("uv")
+    # uv run sets UV to itself. which() can find a uv.cmd on Windows, and cmd.exe re-parses names.
+    uv = os.environ.get("UV") or shutil.which("uv")
     if uv is None:
         sys.exit("uv not found on PATH")
     # --project: vermin from this repo's dev group, even when root is a test repo.
