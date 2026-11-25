@@ -791,8 +791,52 @@ def test_run_stops_what_the_child_started_on_a_timeout():
     """subprocess.run would kill the child, then wait 60s on Windows for the grandchild."""
     start = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
-        COMMON.run([sys.executable, "-c", TREE], timeout=2)
+        # Long enough for the child to start the grandchild on a loaded machine.
+        COMMON.run([sys.executable, "-c", TREE], timeout=5)
     assert time.monotonic() - start < 15
+
+
+def test_run_does_not_wait_for_a_process_that_left_the_tree():
+    """The child exits at once; taskkill /T can't find the grandchild still holding the pipes."""
+    orphan = "import subprocess, sys\n" + TREE.splitlines()[1]
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        COMMON.run([sys.executable, "-c", orphan], timeout=3)
+    assert time.monotonic() - start < 3 + COMMON.KILL_TIME + 2
+
+
+def test_run_stops_the_tree_when_interrupted(monkeypatch):
+    class Interrupted(subprocess.Popen):
+        def communicate(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+    killed = []
+    monkeypatch.setattr(subprocess, "Popen", Interrupted)
+    monkeypatch.setattr(COMMON, "kill_tree", lambda p: killed.append(p) or p.kill())
+    with pytest.raises(KeyboardInterrupt):
+        COMMON.run([sys.executable, "-c", "import time; time.sleep(60)"], timeout=30)
+    [process] = killed
+    assert process.wait(timeout=10) is not None
+
+
+@pytest.mark.parametrize(
+    "hook, name",
+    [
+        ("check_min_python.py", "example.py"),
+        ("ruff_format.py", "example.py"),
+        ("check_ptsp.py", "example.ptsp"),
+    ],
+)
+def test_hooks_note_a_timeout_before_settings_json_stops_them(tool_run, hook, name):
+    """The hook's timeouts, then the time a tree kill takes, fit under its settings.json one."""
+    path = tool_run.path.with_name(name)
+    if name.endswith(".ptsp"):
+        ptsp(path.parent, "$set(a,b)", name)
+    tool_run.edit(path, hook)
+    [limit] = [h["timeout"] for _, _, h in settings_hooks() if hook in h["command"]]
+    timeouts = [kwargs["timeout"] for _, kwargs in tool_run.calls]
+    assert timeouts
+    assert sum(timeouts) + COMMON.KILL_TIME < limit
 
 
 def test_run_returns_the_child_s_output_and_exit_code():
@@ -809,9 +853,11 @@ def test_kill_tree_stops_the_tree_then_the_child(monkeypatch, platform, fails):
 
     def kill(*args, **kwargs):
         calls.append(args)
+        assert kwargs.get("timeout", COMMON.TASKKILL_TIME) == COMMON.TASKKILL_TIME
         if fails:
             raise ProcessLookupError("no such process")
 
+    monkeypatch.setenv("SystemRoot", "")  # else a relative path, looked up in the cwd
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(subprocess, "run", kill)
     monkeypatch.setattr(os, "killpg", kill, raising=False)  # POSIX only
@@ -819,7 +865,7 @@ def test_kill_tree_stops_the_tree_then_the_child(monkeypatch, platform, fails):
     COMMON.kill_tree(SimpleNamespace(pid=1234, kill=lambda: calls.append("kill")))
     if platform == "win32":
         [command] = calls[0]
-        assert Path(command[0]).name == "taskkill.exe"
+        assert command[0] == os.path.join(r"C:\Windows", "System32", "taskkill.exe")
         assert command[1:] == ["/F", "/T", "/PID", "1234"]
     else:
         assert calls[0] == (1234, 9)

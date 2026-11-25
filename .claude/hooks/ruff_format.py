@@ -75,7 +75,8 @@ def main():
         )
     try:
         # uv and Ruff both exit 2 on failure, so check Ruff starts before blaming the file.
-        started = ruff(uv, root, "--version", timeout=35)
+        # 30 + 10 + 10 + common.KILL_TIME, under the 60 in settings.json.
+        started = ruff(uv, root, "--version", timeout=30)
         if started.returncode:
             return note(
                 f"{path.name} was not formatted: Ruff didn't start ({last_line(started)})."

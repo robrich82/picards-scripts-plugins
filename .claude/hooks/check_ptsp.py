@@ -118,7 +118,7 @@ def main():
             ],
             encoding="utf-8",
             errors="backslashreplace",
-            timeout=25,
+            timeout=22,  # + common.KILL_TIME, under the 30 in settings.json
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not parse-checked: the check timed out.")

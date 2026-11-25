@@ -72,7 +72,7 @@ def main():
             errors="backslashreplace",
             # Else vermin prints a path the console code page can't encode as a traceback.
             env=dict(os.environ, PYTHONUTF8="1"),
-            timeout=50,  # under the 60 in settings.json
+            timeout=50,  # + common.KILL_TIME, under the 60 in settings.json
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not checked for newer stdlib APIs: timed out.")
