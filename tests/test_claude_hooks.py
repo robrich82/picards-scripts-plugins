@@ -797,8 +797,13 @@ def test_run_stops_what_the_child_started_on_a_timeout():
 
 
 def test_run_does_not_wait_for_a_process_that_left_the_tree():
-    """The child exits at once; taskkill /T can't find the grandchild still holding the pipes."""
-    orphan = "import subprocess, sys\n" + TREE.splitlines()[1]
+    """The grandchild holding the pipes is out of the tree kill's reach: on Windows its parent
+    has exited, on POSIX it is in a session of its own."""
+    orphan = (
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'],"
+        " start_new_session=True)\n"
+    )
     start = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
         COMMON.run([sys.executable, "-c", orphan], timeout=3)
