@@ -1,4 +1,5 @@
-"""Shared by the PostToolUse hooks: which repo roots they may run code from, and where uv is.
+"""Shared by the PostToolUse hooks: which repo roots they may run code from, where uv is, and
+how to run it.
 
 Not a hook itself. settings.json runs hooks with -I, so each hook puts this folder on sys.path.
 
@@ -10,6 +11,8 @@ content: a worktree of a fork's branch still runs that branch's code.
 """
 
 import os
+import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -77,3 +80,53 @@ def find_uv():
         if absolute and os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
+
+
+def run(args, timeout, **kwargs):
+    """subprocess.run(args, capture_output=True, timeout=timeout, ...), but a timeout also stops
+    what the child started, and raises within KILL_TIME more seconds. subprocess.run kills only
+    the child, then on Windows waits for its output pipes, which uv's ruff or python still hold."""
+    # start_new_session: on POSIX the child leads a process group kill_tree() can signal.
+    # Not `with Popen(...)`: closing the pipes on exit waits for any process still holding them.
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        **kwargs,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(process)
+        try:
+            process.communicate(timeout=KILL_TIME - TASKKILL_TIME)
+        except subprocess.TimeoutExpired:
+            pass  # a process that left the tree, e.g. when its parent exited, holds the pipes
+        raise
+    except BaseException:  # as subprocess.run does, e.g. on KeyboardInterrupt
+        kill_tree(process)
+        raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
+KILL_TIME = 5  # what a hook's timeouts must leave under its settings.json timeout
+TASKKILL_TIME = 3
+
+
+def kill_tree(process):
+    """Stop process and everything under it, then process itself in case the tree kill failed."""
+    try:
+        if sys.platform == "win32":
+            # A full path: Windows looks for a bare name in the cwd first.
+            system = os.environ.get("SystemRoot") or r"C:\Windows"
+            taskkill = os.path.join(system, "System32", "taskkill.exe")
+            command = [taskkill, "/F", "/T", "/PID", str(process.pid)]
+            subprocess.run(
+                command, capture_output=True, timeout=TASKKILL_TIME, check=False
+            )
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    process.kill()

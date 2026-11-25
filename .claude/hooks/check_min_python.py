@@ -62,19 +62,17 @@ def main():
         )
     try:
         # --frozen: run from uv.lock as it is, never re-lock it as a side effect of a check.
-        result = subprocess.run(
+        result = common.run(
             [uv, "run", "--frozen", "--quiet", "--project", str(root)]
             + ["python", str(root / TOOL), str(path)],
             # Not Claude's cwd: if UV is unset, the tool's shutil.which("uv") searches it first
             # on Windows.
             cwd=str(root),
-            capture_output=True,
             encoding="utf-8",
             errors="backslashreplace",
             # Else vermin prints a path the console code page can't encode as a traceback.
             env=dict(os.environ, PYTHONUTF8="1"),
-            timeout=50,  # under the 60 in settings.json
-            check=False,
+            timeout=50,  # + common.KILL_TIME, under the 60 in settings.json
         )
     except subprocess.TimeoutExpired:
         return note(f"{path.name} was not checked for newer stdlib APIs: timed out.")

@@ -40,15 +40,13 @@ def note(text):
 
 def ruff(uv, root, *args, timeout):
     # --frozen: run from uv.lock as it is, never re-lock it as a side effect of formatting.
-    return subprocess.run(
+    return common.run(
         [uv, "run", "--frozen", "--quiet", "--project", str(root), "ruff", *args],
         # Defence in depth: keep Claude's cwd out of uv's and Ruff's lookups.
         cwd=str(root),
-        capture_output=True,
         encoding="utf-8",
         errors="backslashreplace",
         timeout=timeout,
-        check=False,
     )
 
 
@@ -77,7 +75,8 @@ def main():
         )
     try:
         # uv and Ruff both exit 2 on failure, so check Ruff starts before blaming the file.
-        started = ruff(uv, root, "--version", timeout=35)
+        # 30 + 10 + 10 + common.KILL_TIME, under the 60 in settings.json.
+        started = ruff(uv, root, "--version", timeout=30)
         if started.returncode:
             return note(
                 f"{path.name} was not formatted: Ruff didn't start ({last_line(started)})."

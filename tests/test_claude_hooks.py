@@ -5,6 +5,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / ".claude" / "hooks"
+# The module the hooks import, so a test can fake what they run.
+sys.path.append(str(HOOKS))
+COMMON = importlib.import_module("_hook_common")
 SETTINGS = ROOT / ".claude" / "settings.json"
 SCRIPT_FILES = sorted((ROOT / "tagger-scripts").glob("*.ptsp"))
 REPO = "robrich82/picards-scripts-plugins"
@@ -236,7 +240,7 @@ def test_check_ptsp_says_when_the_check_does_not_finish(
     def fails(args, **kwargs):
         raise error
 
-    monkeypatch.setattr(subprocess, "run", fails)
+    monkeypatch.setattr(COMMON, "run", fails)
     path = ptsp(bare_repo, "$set(a,b)")
     code, note = call_after_edit(monkeypatch, capsys, "check_ptsp.py", path)
     assert code == 0
@@ -340,13 +344,12 @@ def test_find_uv_takes_the_first_absolute_path_folder_holding_it(tmp_path, monke
         str(tmp_path / f) for f in ("missing", "empty", "folder", "first", "second")
     ]
     monkeypatch.setenv("PATH", os.pathsep.join(["", ".", *on_drive, *folders]))
-    common = load_hook("_hook_common.py")
     if os.name == "nt":
         # Python 3.13 stopped calling "\folder" absolute; fake the older isabs the hook may run on.
         monkeypatch.setattr(
             os.path, "isabs", lambda p: p[:1] in "\\/" or p[1:3] in (":\\", ":/")
         )
-    found = common.find_uv()
+    found = COMMON.find_uv()
     assert found and Path(found) == first
 
 
@@ -360,7 +363,7 @@ def test_find_uv_takes_only_uv_exe_on_windows(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "PATH", os.pathsep.join(str(tmp_path / f) for f in ("cmd", "exe"))
     )
-    assert load_hook("_hook_common.py").find_uv() == str(exe)
+    assert COMMON.find_uv() == str(exe)
 
 
 @pytest.mark.skipif(
@@ -374,7 +377,7 @@ def test_find_uv_skips_a_uv_that_is_not_executable(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "PATH", os.pathsep.join(str(tmp_path / f) for f in ("first", "second"))
     )
-    assert load_hook("_hook_common.py").find_uv() == str(second)
+    assert COMMON.find_uv() == str(second)
 
 
 @pytest.mark.parametrize("folder", ["src", "venv"])
@@ -417,7 +420,7 @@ def test_ruff_format_says_when_ruff_does_not_start(
         commands.append(args)
         return subprocess.CompletedProcess(args, 2, stdout, stderr)
 
-    monkeypatch.setattr(subprocess, "run", cannot_start)
+    monkeypatch.setattr(COMMON, "run", cannot_start)
     code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", path)
     assert code == 0
     assert note == f"example.py was not formatted: Ruff didn't start ({shown})."
@@ -433,7 +436,7 @@ def test_ruff_format_says_when_ruff_times_out(py_file_with_uv, monkeypatch, caps
             raise subprocess.TimeoutExpired(args, kwargs["timeout"])
         return subprocess.CompletedProcess(args, 0, "ruff 0.0.0\n", "")
 
-    monkeypatch.setattr(subprocess, "run", slow_format)
+    monkeypatch.setattr(COMMON, "run", slow_format)
     code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", path)
     assert code == 0
     assert note == "example.py was not formatted: Ruff timed out."
@@ -444,7 +447,7 @@ def test_ruff_format_says_when_uv_does_not_start(py_file_with_uv, monkeypatch, c
     def cannot_start(args, **kwargs):
         raise OSError("[WinError 193] %1 is not a valid Win32 application")
 
-    monkeypatch.setattr(subprocess, "run", cannot_start)
+    monkeypatch.setattr(COMMON, "run", cannot_start)
     code, note = call_after_edit(monkeypatch, capsys, "ruff_format.py", py_file_with_uv)
     assert code == 0
     assert note == (
@@ -526,7 +529,7 @@ def tool_run(in_repo, monkeypatch, capsys, uv_on_path):
             raise run.error
         return run.result
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(COMMON, "run", fake_run)
     run.edit = lambda path, hook="check_min_python.py": call_after_edit(
         monkeypatch, capsys, hook, path
     )
@@ -575,7 +578,7 @@ def project(tmp_path):
 
 
 def test_trusted_roots_are_the_main_checkout_and_its_worktrees(project):
-    common = load_hook("_hook_common.py")
+    common = COMMON
     roots = {project / "main", project / "wt", project / "wt2"}
     for folder in roots:
         assert common.trusted_roots(folder) == roots
@@ -594,7 +597,7 @@ def test_trusted_roots_read_what_git_worktree_add_writes(tmp_path, relative):
         subprocess.run(git + args, env=env, check=True, capture_output=True)
     back_link = (tmp / "main" / ".git" / "worktrees" / "wt" / "gitdir").read_text()
     assert back_link.startswith("..") == (relative == "true")
-    common = load_hook("_hook_common.py")
+    common = COMMON
     roots = {tmp / "main", tmp / "wt"}
     for folder in roots:
         assert common.trusted_roots(folder) == roots
@@ -616,7 +619,7 @@ def test_trusted_roots_fall_back_to_the_project_alone(tmp_path, git):
     """Its .claude/hooks run anyway, so it is trusted even when its git links can't be read."""
     if git is not None:
         (tmp_path / ".git").write_bytes(git)
-    assert load_hook("_hook_common.py").trusted_roots(tmp_path) == {tmp_path}
+    assert COMMON.trusted_roots(tmp_path) == {tmp_path}
 
 
 def test_trusted_roots_skip_the_folder_above_a_git_dir_not_named_dot_git(tmp_path):
@@ -625,7 +628,7 @@ def test_trusted_roots_skip_the_folder_above_a_git_dir_not_named_dot_git(tmp_pat
     project.mkdir()
     (project / ".git").write_text("gitdir: ../store\n")
     (tmp_path / "store").mkdir()
-    assert load_hook("_hook_common.py").trusted_roots(project) == {project}
+    assert COMMON.trusted_roots(project) == {project}
 
 
 @pytest.mark.parametrize("folder", ["main", "wt", "wt2"])
@@ -774,6 +777,104 @@ def test_check_min_python_says_when_uv_does_not_finish(tool_run, error, shown):
         0,
         f"example.py was not checked for newer stdlib APIs: {shown}.",
     )
+
+
+# A child that starts a grandchild, which inherits its output pipes, and both sleep.
+TREE = (
+    "import subprocess, sys, time\n"
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+    "time.sleep(60)\n"
+)
+
+
+def test_run_stops_what_the_child_started_on_a_timeout():
+    """subprocess.run would kill the child, then wait 60s on Windows for the grandchild."""
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        # Long enough for the child to start the grandchild on a loaded machine.
+        COMMON.run([sys.executable, "-c", TREE], timeout=5)
+    assert time.monotonic() - start < 15
+
+
+def test_run_does_not_wait_for_a_process_that_left_the_tree():
+    """The grandchild holding the pipes is out of the tree kill's reach: on Windows its parent
+    has exited, on POSIX it is in a session of its own."""
+    orphan = (
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'],"
+        " start_new_session=True)\n"
+    )
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        COMMON.run([sys.executable, "-c", orphan], timeout=3)
+    assert time.monotonic() - start < 3 + COMMON.KILL_TIME + 2
+
+
+def test_run_stops_the_tree_when_interrupted(monkeypatch):
+    class Interrupted(subprocess.Popen):
+        def communicate(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+    killed = []
+    monkeypatch.setattr(subprocess, "Popen", Interrupted)
+    monkeypatch.setattr(COMMON, "kill_tree", lambda p: killed.append(p) or p.kill())
+    with pytest.raises(KeyboardInterrupt):
+        COMMON.run([sys.executable, "-c", "import time; time.sleep(60)"], timeout=30)
+    [process] = killed
+    assert process.wait(timeout=10) is not None
+
+
+@pytest.mark.parametrize(
+    "hook, name",
+    [
+        ("check_min_python.py", "example.py"),
+        ("ruff_format.py", "example.py"),
+        ("check_ptsp.py", "example.ptsp"),
+    ],
+)
+def test_hooks_note_a_timeout_before_settings_json_stops_them(tool_run, hook, name):
+    """The hook's timeouts, then the time a tree kill takes, fit under its settings.json one."""
+    path = tool_run.path.with_name(name)
+    if name.endswith(".ptsp"):
+        ptsp(path.parent, "$set(a,b)", name)
+    tool_run.edit(path, hook)
+    [limit] = [h["timeout"] for _, _, h in settings_hooks() if hook in h["command"]]
+    timeouts = [kwargs["timeout"] for _, kwargs in tool_run.calls]
+    assert timeouts
+    assert sum(timeouts) + COMMON.KILL_TIME < limit
+
+
+def test_run_returns_the_child_s_output_and_exit_code():
+    code = "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"
+    result = COMMON.run([sys.executable, "-c", code], timeout=30, encoding="utf-8")
+    assert (result.returncode, result.stdout, result.stderr) == (3, "out\n", "err\n")
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+@pytest.mark.parametrize("fails", [False, True], ids=["tree-killed", "tree-kill-fails"])
+def test_kill_tree_stops_the_tree_then_the_child(monkeypatch, platform, fails):
+    """Both platforms' branches on either OS, with taskkill and killpg faked."""
+    calls = []
+
+    def kill(*args, **kwargs):
+        calls.append(args)
+        assert kwargs.get("timeout", COMMON.TASKKILL_TIME) == COMMON.TASKKILL_TIME
+        if fails:
+            raise ProcessLookupError("no such process")
+
+    monkeypatch.setenv("SystemRoot", "")  # else a relative path, looked up in the cwd
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(subprocess, "run", kill)
+    monkeypatch.setattr(os, "killpg", kill, raising=False)  # POSIX only
+    monkeypatch.setattr(signal, "SIGKILL", 9, raising=False)  # POSIX only
+    COMMON.kill_tree(SimpleNamespace(pid=1234, kill=lambda: calls.append("kill")))
+    if platform == "win32":
+        [command] = calls[0]
+        assert command[0] == os.path.join(r"C:\Windows", "System32", "taskkill.exe")
+        assert command[1:] == ["/F", "/T", "/PID", "1234"]
+    else:
+        assert calls[0] == (1234, 9)
+    assert calls[1:] == ["kill"]
 
 
 def settings_hooks():
