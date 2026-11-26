@@ -80,7 +80,7 @@ uv run python tools/check_min_python.py
 
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
-CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)); the tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails.
+CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)); the tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails. They also run on Windows, without coverage.
 
 `ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
