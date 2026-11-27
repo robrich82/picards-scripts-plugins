@@ -6,7 +6,7 @@ lockfile = true
 experimental = true
 
 [tools]
-uv = "0.13.9"
+uv = "0.13.10"
 
 # `mise deps` runs `uv sync` when uv.lock or pyproject.toml changed or .venv is missing;
 # `mise exec`, `mise run` and mise's shims do it first too, `mise install` doesn't.
