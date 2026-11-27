@@ -53,14 +53,14 @@ def repo(tmp_path, monkeypatch):
 def commit(work, version, new_file=None):
     """Set the plugin's version (None: no version line), optionally add an empty plugin file, and commit."""
     manifest = work / release_plugin.PREFIX / "MANIFEST.toml"
-    text = re.sub(r"(?m)^version = .*\n", "", manifest.read_text())
+    text = re.sub(r"(?m)^version = .*\n", "", manifest.read_text(encoding="utf-8"))
     if version is not None:
         text += (
             f"version = {version!r}\n"
             if isinstance(version, int)
             else f'version = "{version}"\n'
         )
-    manifest.write_text(text)
+    manifest.write_text(text, encoding="utf-8")  # a version may be non-ASCII
     if new_file:
         (work / release_plugin.PREFIX / new_file).write_text("")
     git(work, "add", "-A")
