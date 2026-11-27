@@ -4,6 +4,7 @@ A pattern that stops matching fails silently: Renovate drops the file from its d
 bumps the rest without it.
 """
 
+import importlib.util
 import json
 import re
 import subprocess
@@ -15,8 +16,13 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
 REGEX_MANAGERS = [m for m in CONFIG["customManagers"] if m["customType"] == "regex"]
 TRACKED = subprocess.run(
-    ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
-).stdout.splitlines()
+    ["git", "ls-files", "-z"],
+    cwd=ROOT,
+    capture_output=True,
+    text=True,
+    encoding="utf-8",
+    check=True,
+).stdout.split("\0")[:-1]
 
 
 def python_pattern(renovate_pattern):
@@ -55,3 +61,18 @@ def test_each_file_has_every_version_matched_once(manager):
         assert count == len(values), (
             f"{name} names {version} {count} times; the patterns match {len(values)}"
         )
+
+
+@pytest.mark.parametrize(
+    "manager", REGEX_MANAGERS, ids=[m["depNameTemplate"] for m in REGEX_MANAGERS]
+)
+def test_a_version_bump_runs_the_tests(manager):
+    """The test above reads these files, so CI's path filter must run the tests for them."""
+    spec = importlib.util.spec_from_file_location(
+        "ci_changes", ROOT / "tools" / "ci_changes.py"
+    )
+    assert spec and spec.loader
+    ci_changes = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ci_changes)
+    for name in managed_files(manager):
+        assert "test" in ci_changes.outputs_for(name), name

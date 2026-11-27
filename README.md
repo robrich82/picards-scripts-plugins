@@ -80,7 +80,7 @@ uv run python tools/check_min_python.py
 
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
-CI runs these and the tests on every pull request and push to `main` ([`checks.yml`](.github/workflows/checks.yml)); the tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails. They also run on Windows, without coverage.
+CI runs these and the tests ([`checks.yml`](.github/workflows/checks.yml)): a push to `main` runs every job, a pull request only the jobs its changed paths need ([`tools/ci_changes.py`](tools/ci_changes.py)). The tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails; they also run on Windows, without coverage. Branch protection should require only the `gate` job, which fails when any other job does.
 
 `ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
