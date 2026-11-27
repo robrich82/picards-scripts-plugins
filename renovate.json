@@ -8,7 +8,6 @@
     "description": "Renovate defaults this to null for security fixes.",
     "minimumReleaseAge": "1 day"
   },
-  "platformAutomerge": false,
   "customManagers": [
     {
       "description": "The Picard release the tests run against, and the README lines that name it. tests/test_renovate.py checks these still match.",
@@ -32,7 +31,7 @@
       "enabled": false
     },
     {
-      "description": "Automerge non-major updates once every check is green. platformAutomerge is off because main has no required status checks, so GitHub would merge before CI finishes. Not digest: a re-pointed tag keeps its old release date, so it skips minimumReleaseAge.",
+      "description": "Automerge non-major updates through GitHub's auto-merge, which waits for the approving review and the gate check that main requires. Not digest: a re-pointed tag keeps its old release date, so it skips minimumReleaseAge.",
       "matchUpdateTypes": ["minor", "patch", "pin"],
       "matchCurrentVersion": "!/^v?0\\./",
       "automerge": true
