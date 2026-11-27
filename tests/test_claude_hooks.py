@@ -585,16 +585,16 @@ def test_trusted_roots_are_the_main_checkout_and_its_worktrees(project):
 
 
 @pytest.mark.parametrize("relative", ["false", "true"], ids=["absolute", "relative"])
-def test_trusted_roots_read_what_git_worktree_add_writes(tmp_path, relative):
+def test_trusted_roots_read_what_git_worktree_add_writes(
+    tmp_path, isolated_git, relative
+):
     tmp = tmp_path.resolve()
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     git = ["git", "-c", f"worktree.useRelativePaths={relative}", "-C", str(tmp)]
     for args in (
         ["init", "-q", "main"],
         ["-C", "main", "worktree", "add", "-q", "--orphan", "-b", "wt", "../wt"],
     ):
-        subprocess.run(git + args, env=env, check=True, capture_output=True)
+        subprocess.run(git + args, check=True, capture_output=True)
     back_link = (tmp / "main" / ".git" / "worktrees" / "wt" / "gitdir").read_text()
     assert back_link.startswith("..") == (relative == "true")
     common = COMMON

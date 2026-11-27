@@ -100,17 +100,8 @@ def test_no_test_reads_a_path_that_skips_the_tests():
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    """A repo on main with tools/x.py and CLAUDE.md, and git isolated from the user's config."""
-    gitconfig = tmp_path / "gitconfig"  # keep the user's signing and hooks out of it
-    gitconfig.write_text("[init]\n\tdefaultBranch = main\n")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
-        monkeypatch.delenv(var, raising=False)  # set when run from a git hook
-    for role in ("AUTHOR", "COMMITTER"):
-        monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
-        monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@example.invalid")
+def repo(tmp_path, isolated_git):
+    """A repo on main with tools/x.py and CLAUDE.md."""
     root = tmp_path / "repo"
     git(tmp_path, "init", "-q", str(root))
     write(root, "tools/x.py", "x = 1\n")
