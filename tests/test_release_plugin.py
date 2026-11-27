@@ -25,17 +25,8 @@ git = release_plugin.git
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
+def repo(tmp_path, isolated_git):
     """A repo shaped like this one, with the real plugin at 1.0.0, and an empty bare remote as origin."""
-    gitconfig = tmp_path / "gitconfig"  # keep the user's signing and hooks out of it
-    gitconfig.write_text("")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
-        monkeypatch.delenv(var, raising=False)  # set when run from a git hook
-    for role in ("AUTHOR", "COMMITTER"):
-        monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
-        monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@example.invalid")
     work, remote = tmp_path / "work", tmp_path / "remote.git"
     git(tmp_path, "init", "-q", "--bare", str(remote))
     git(tmp_path, "init", "-q", "-b", "main", str(work))

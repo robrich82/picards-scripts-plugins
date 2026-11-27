@@ -58,6 +58,21 @@ def _defaulting_section(section_name):
     return _Section()
 
 
+@pytest.fixture
+def isolated_git(tmp_path, monkeypatch):
+    """Git in this test reads none of the user's config and none of a calling hook's GIT_* vars,
+    defaults to branch main and commits as a fixed identity."""
+    for var in [v for v in os.environ if v.startswith("GIT_")]:
+        monkeypatch.delenv(var)  # GIT_DIR and friends are set when run from a git hook
+    gitconfig = tmp_path / "gitconfig"  # keeps the user's signing and hooks out
+    gitconfig.write_text("[init]\n\tdefaultBranch = main\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for role in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
+        monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@example.invalid")
+
+
 @pytest.fixture(autouse=True)
 def picard_config(monkeypatch):
     import picard.config as cfg
