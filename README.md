@@ -64,25 +64,23 @@ To check a different Picard version, change `PICARD_REF` in [`tools/run_tests.py
 
 ## Lint, format and type check
 
-[Ruff](https://docs.astral.sh/ruff/), [ty](https://docs.astral.sh/ty/) and [vermin](https://github.com/netromdk/vermin) are pinned in `uv.lock`:
+[Ruff](https://docs.astral.sh/ruff/), [ty](https://docs.astral.sh/ty/) and [vermin](https://github.com/netromdk/vermin) are pinned in `uv.lock`, and these mise tasks run them with `uv run`:
 
 ```sh
-uv sync --locked
-uv run ruff check
-uv run ruff format --check
-uv run ty check
-uv run python tools/check_min_python.py
+mise run lint       # ruff check, ruff format --check, tools/check_min_python.py
+mise run format     # ruff format
+mise run typecheck  # ty check
 ```
 
-`check_min_python.py` runs vermin on the files `per-file-target-version` in `pyproject.toml` keeps on an older Python, catching stdlib APIs newer than their target that Ruff doesn't. The tests run it too. Mark a call that a version check guards with `# novermin`.
-
 `mise deps` runs `uv sync` when `uv.lock` or `pyproject.toml` changed or `.venv` is missing, and `mise exec`, `mise run` and mise's shims run it first too.
+
+`check_min_python.py` runs vermin on the files `per-file-target-version` in `pyproject.toml` keeps on an older Python, catching stdlib APIs newer than their target that Ruff doesn't. The tests run it too. Mark a call that a version check guards with `# novermin`.
 
 `ty check` reads Picard's source and the test environment from `.picard/`, so run the tests once first.
 
 CI runs these and the tests ([`checks.yml`](.github/workflows/checks.yml)): a push to `main` runs every job, a pull request only the jobs its changed paths need ([`tools/ci_changes.py`](tools/ci_changes.py)). The tests run with `--coverage`, so a pull request that leaves a line or branch uncovered fails; they also run on Windows, without coverage. Branch protection should require only the `gate` job, which fails when any other job does.
 
-`ruff format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
+`mise run format` applies the formatting; `.git-blame-ignore-revs` skips the commit that first applied it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
 ## Licence
 

@@ -31,3 +31,20 @@ run = "python tools/install.py scripts"
 [tasks.test]
 description = "Run the tests; extra arguments go to pytest"
 run = "python tools/run_tests.py"
+
+[tasks.lint]
+description = "Check the Python with Ruff (lint and formatting) and vermin"
+run = [
+    "uv run ruff check",
+    "uv run ruff format --check",
+    "uv run python tools/check_min_python.py",
+]
+
+[tasks.format]
+description = "Format the Python with Ruff"
+run = "uv run ruff format"
+
+# Reads the venv and Picard source that `test` puts in .picard/.
+[tasks.typecheck]
+description = "Type check with ty; run the tests once first"
+run = "uv run ty check"
