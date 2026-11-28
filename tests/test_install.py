@@ -206,6 +206,11 @@ def test_pgrep_failure_raises(monkeypatch):
         (["install-plugin"], "python tools/install.py plugin"),
         (["install-scripts"], "python tools/install.py scripts"),
         (["test", "-k", "CV"], "python tools/run_tests.py -k CV"),
+        (["lint"], "uv run ruff check"),
+        (["lint"], "uv run ruff format --check"),
+        (["lint"], "uv run python tools/check_min_python.py"),
+        (["format"], "uv run ruff format"),
+        (["typecheck"], "uv run ty check"),
     ],
 )
 def test_mise_tasks_run_the_tools(args, command):
