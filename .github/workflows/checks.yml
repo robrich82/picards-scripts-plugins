@@ -48,9 +48,7 @@ jobs:
         with:
           path: ~/.cache/uv
           key: uv-lint-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-      - run: uv sync
-      - run: uv run ruff check
-      - run: uv run ruff format --check
+      - run: mise run lint # mise's [deps.uv] runs uv sync first
       - run: uv cache prune --ci
 
   test:
@@ -72,12 +70,10 @@ jobs:
         with:
           path: ~/.cache/uv
           key: uv-test-${{ runner.os }}-${{ hashFiles('uv.lock', 'tools/run_tests.py') }}
-      - run: python3 tools/run_tests.py --coverage # fails below [tool.coverage.report] fail_under
+      - run: mise run test --coverage # fails below [tool.coverage.report] fail_under
       # After the tests: ty reads the venv and Picard source they put in .picard/. Runs even when a test fails.
       - if: ${{ !cancelled() }}
-        run: uv sync
-      - if: ${{ !cancelled() }}
-        run: uv run ty check
+        run: mise run typecheck
       - run: uv cache prune --ci # actions/cache only saves after a green job
 
   # The hooks' Windows code (find_uv, kill_tree, Git Bash paths) and the tests skipped off Windows.
@@ -100,7 +96,7 @@ jobs:
         with:
           path: ~/AppData/Local/uv/cache
           key: uv-test-${{ runner.os }}-${{ hashFiles('uv.lock', 'tools/run_tests.py') }}
-      - run: python tools/run_tests.py
+      - run: mise run test
       - run: uv cache prune --ci # actions/cache only saves after a green job
 
   # Require this check, not the jobs: a job the filter skipped reports skipped, which passes here.

@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -235,6 +236,16 @@ def test_each_job_runs_only_when_its_output_says_so():
         "test": "needs.changes.outputs.test == 'true'",
         "test-windows": "needs.changes.outputs.test == 'true'",
     }
+
+
+def test_the_jobs_run_tasks_that_mise_toml_defines():
+    tasks = tomllib.loads((ROOT / "mise.toml").read_text("utf-8"))["tasks"]
+    runs = [
+        step["run"] for job in JOBS.values() for step in job["steps"] if "run" in step
+    ]
+    named = {task for run in runs for task in re.findall(r"\bmise run ([\w-]+)", run)}
+    assert named == {"lint", "test", "typecheck"}
+    assert named <= set(tasks)
 
 
 def test_the_gate_needs_every_job_and_always_runs():
