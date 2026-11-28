@@ -15,10 +15,10 @@ import sys
 OUTPUTS = ("lint", "test")  # test gates both test and test-windows
 
 # First match wins; fnmatch's * also matches "/". Each rule lists the outputs whose jobs read the
-# path. lint: ruff over the Python, configured by any pyproject.toml or ruff.toml. test: pytest
-# and ty, and the files the tests read: the scripts, the plugin, settings.json,
+# path. lint: ruff and vermin over the Python, configured by any pyproject.toml or ruff.toml.
+# test: pytest and ty, and the files the tests read: the scripts, the plugin, settings.json,
 # release-plugin.yml, renovate.json and the files it manages (README.md's Picard version).
-# mise.toml and mise.lock install both jobs' uv.
+# mise.toml and mise.lock install both jobs' uv, and mise.toml defines the tasks they run.
 RULES = (
     ("*.py", OUTPUTS),
     ("*.pyi", OUTPUTS),

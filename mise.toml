@@ -30,7 +30,8 @@ run = "python tools/install.py scripts"
 
 [tasks.test]
 description = "Run the tests; extra arguments go to pytest"
-run = "python tools/run_tests.py"
+run = "python3 tools/run_tests.py" # macOS and the Ubuntu runner may have no `python`
+run_windows = "python tools/run_tests.py" # where `python3` can be the Microsoft Store stub
 
 [tasks.lint]
 description = "Check the Python with Ruff (lint and formatting) and vermin"
