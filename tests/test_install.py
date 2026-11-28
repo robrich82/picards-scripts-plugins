@@ -205,7 +205,11 @@ def test_pgrep_failure_raises(monkeypatch):
         (["install-all"], "python tools/install.py all"),
         (["install-plugin"], "python tools/install.py plugin"),
         (["install-scripts"], "python tools/install.py scripts"),
-        (["test", "-k", "CV"], "python tools/run_tests.py -k CV"),
+        # mise.toml's run_windows: `python` on Windows, `python3` elsewhere.
+        (
+            ["test", "-k", "CV"],
+            f"{'python' if os.name == 'nt' else 'python3'} tools/run_tests.py -k CV",
+        ),
         (["lint"], "uv run ruff check"),
         (["lint"], "uv run ruff format --check"),
         (["lint"], "uv run python tools/check_min_python.py"),
