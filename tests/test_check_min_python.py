@@ -1,6 +1,7 @@
 """tools/check_min_python.py running the pinned vermin on throwaway repos, and on this one."""
 
 import importlib.util
+import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -50,6 +51,20 @@ def test_this_repo_meets_its_target_versions():
     listed = check_min_python.repo_files(ROOT)
     assert any(check_min_python.target_of(name, versions) for name in listed)
     assert check_min_python.main([]) == 0
+
+
+def test_scripts_the_workflows_run_on_the_runners_python_have_a_target_version():
+    """The runner's python isn't the venv's 3.14, so per-file-target-version must hold each to one."""
+    versions = check_min_python.targets(ROOT / "pyproject.toml")
+    scripts = {
+        script
+        for workflow in (ROOT / ".github" / "workflows").glob("*.yml")
+        for script in re.findall(
+            r"\bpython3? ([\w./-]+\.py)", workflow.read_text("utf-8")
+        )
+    }
+    assert "tools/ci_changes.py" in scripts  # the pattern still finds them
+    assert {s for s in scripts if not check_min_python.target_of(s, versions)} == set()
 
 
 def test_targets_reads_versions(repo):
